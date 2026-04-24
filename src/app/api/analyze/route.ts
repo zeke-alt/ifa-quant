@@ -8,7 +8,11 @@
 
 import { bayseRead } from "@/lib/bayse-server";
 import { GoogleGenAI } from "@google/genai";
-
+console.log("ENV CHECK:", {
+  hasGemini: !!process.env.GEMINI_API_KEY,
+  hasBayseKey: !!process.env.BAYSE_API_KEY,
+  hasBayseSecret: !!process.env.BAYSE_API_SECRET,
+});
 // Initialize Vertex AI with Project & Location from env
 const ai = new GoogleGenAI({
   vertexai: true,
