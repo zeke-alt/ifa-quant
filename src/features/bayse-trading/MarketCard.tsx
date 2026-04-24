@@ -180,16 +180,24 @@ export default function MarketCard({ signal }: { signal: MacroSignal }) {
         </div>
 
 
-        <div className="flex flex-col gap-2 h-30 mb-4">
-          {/* Headline */}
-          <h3 className="text-white font-bold text-lg overflow-hidden">
-            {signal.market_question}
+        <div className="flex flex-col gap-1 mb-4">
+          {/* Event Context Label */}
+          <div className="flex items-center gap-2 mb-1">
+            <div className="bg-slate-800 px-1.5 py-0.5 rounded text-[8px] font-mono text-slate-400 uppercase tracking-widest border border-slate-700">
+              {signal.eventTitle}
+            </div>
+            <span className="text-[9px] font-mono text-slate-600 uppercase">{signal.category}</span>
+          </div>
+
+          {/* AI-Generated Unique Headline for this selection */}
+          <h3 className="text-white font-bold text-lg leading-tight group-hover:text-blue-400 transition-colors">
+            {signal.headline}
           </h3>
 
-          {/* ── Market Question ── */}
-          <h4 className="text-slate-500 opacity-80 text-sm overflow-hidden">
-            {signal.headline}
-          </h4>
+          {/* Specific Market Question/Selection */}
+          <p className="text-slate-500 text-[11px] italic mt-1">
+            {signal.marketTitle}
+          </p>
         </div>
 
         {/* ── Divergence Chart ── */}
@@ -204,8 +212,8 @@ export default function MarketCard({ signal }: { signal: MacroSignal }) {
             aiProb={probability * 100}
             eventId={signal.eventId}
             marketId={signal.marketId}
-            marketPrice={signal.yesProbability * 100}  // 👈 add this
-          />\
+            marketPrice={signal.yesProbability * 100}
+          />
         </div>
 
         {/* ── Reliability Stats ── */}

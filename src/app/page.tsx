@@ -7,7 +7,7 @@ import ConfidenceGauge from '@/components/charts/ConfidenceGauge';
 import SystemLog from '@/components/layout/SystemLog';
 import { analyzeMarkets } from '@/lib/api-client';
 import { MacroSignal } from '@/types/macro';
-import { LayoutGrid, Trophy, TrendingUp, TrendingDown, AlertTriangle, Minus, Brain } from 'lucide-react';
+import { LayoutGrid, Trophy, TrendingUp, TrendingDown, AlertTriangle, Minus, Brain, Search, X, Loader2 } from 'lucide-react';
 
 /**
  * Main Macro Terminal Dashboard
@@ -110,7 +110,7 @@ function Leaderboard({ signals }: { signals: MacroSignal[] }) {
             {/* Market */}
             <div className="col-span-5 flex flex-col justify-center gap-0.5">
               <p className="text-[11px] text-white font-bold leading-tight line-clamp-2">
-                {s.market_question}
+                {s.marketTitle}
               </p>
               <div className="flex items-center gap-1">
                 <Icon size={10} className={cfg.color} />
@@ -245,6 +245,69 @@ export default function Dashboard() {
   const [activeTab, setActiveTab] = useState<'scanner' | 'leaderboard' | 'intelligence'>('scanner');
   const [loading, setLoading] = useState(true);
   const [lastUpdated, setLastUpdated] = useState("");
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchResults, setSearchResults] = useState<any[]>([]);
+  const [isSearching, setIsSearching] = useState(false);
+  const [analyzedSearchResults, setAnalyzedSearchResults] = useState<Record<string, MacroSignal>>({});
+  const [analyzingEventId, setAnalyzingEventId] = useState<string | null>(null);
+
+  /**
+   * Request AI Analysis for a specific search result
+   */
+  const requestAnalysis = async (eventId: string) => {
+    console.log("ANALYSIS_REQUESTED:", eventId);
+    setAnalyzingEventId(eventId);
+    try {
+      const res = await fetch(`/api/analyze?eventId=${eventId}`);
+      const data = await res.json();
+      console.log("ANALYSIS_RESPONSE:", data);
+      if (data.signals && data.signals.length > 0) {
+        setAnalyzedSearchResults(prev => ({
+          ...prev,
+          [eventId]: data.signals[0]
+        }));
+      } else {
+        alert("AI Analysis failed for this market. It may lack sufficient data.");
+      }
+    } catch (err) {
+      console.error("ANALYSIS_REQUEST_ERROR:", err);
+      alert("AI Analysis service is currently busy. Please try again in a moment.");
+    } finally {
+      setAnalyzingEventId(null);
+    }
+  };
+
+  /**
+   * Market Search Handler
+   * 
+   * Fetches raw event data from Bayse API based on keyword.
+   */
+  const handleSearch = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!searchQuery.trim()) return;
+
+    console.log("SEARCH_TRIGGERED:", searchQuery);
+    setIsSearching(true);
+    try {
+      const res = await fetch(`/api/bayse/events?keyword=${encodeURIComponent(searchQuery)}&limit=10`);
+      const data = await res.json();
+      console.log("SEARCH_RESULTS:", data.events?.length || 0, "events found");
+      setSearchResults(data.events ?? []);
+      if (!data.events || data.events.length === 0) {
+        alert(`No markets found for "${searchQuery}"`);
+      }
+    } catch (err) {
+      console.error("SEARCH_ERROR:", err);
+      alert("Search failed. Please try again.");
+    } finally {
+      setIsSearching(false);
+    }
+  };
+
+  const clearSearch = () => {
+    setSearchQuery("");
+    setSearchResults([]);
+  };
 
   /**
    * Data Fetching Handler
@@ -278,7 +341,7 @@ export default function Dashboard() {
     return sentimentMatch && categoryMatch;
   }) ?? [];
 
-  const categories = ['ALL', ...Array.from(new Set(signalsData?.signals.map(s => s.category).filter(Boolean) ?? []))];
+  const categories = ['ALL', ...Array.from(new Set(signalsData?.signals.map(s => s.category).filter((c): c is string => Boolean(c)) ?? []))];
     const TABS = [
     { id: 'scanner', label: 'SIGNAL_CARDS', icon: <LayoutGrid size={12} />, activeClass: 'bg-blue-600 text-white' },
     { id: 'leaderboard', label: 'LEADERBOARD', icon: <Trophy size={12} />, activeClass: 'bg-orange-500 text-white' },
@@ -298,6 +361,32 @@ export default function Dashboard() {
               </p>
             </div>
             <div className="flex gap-2 md:gap-4 items-center">
+              {/* Search Bar */}
+              <form onSubmit={handleSearch} className="relative hidden sm:flex items-center gap-2">
+                <div className="relative">
+                  <input
+                    type="text"
+                    placeholder="SEARCH_MARKETS..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="bg-slate-900 border border-slate-800 focus:border-blue-500 px-10 py-2 rounded-xl text-[10px] font-mono text-white outline-none w-48 lg:w-64 transition-all"
+                  />
+                  <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" />
+                  {searchQuery && (
+                    <button type="button" onClick={clearSearch} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-white">
+                      <X size={14} />
+                    </button>
+                  )}
+                </div>
+                <button 
+                  type="submit" 
+                  disabled={isSearching}
+                  className="bg-blue-600 hover:bg-blue-500 p-2 rounded-xl text-white disabled:opacity-50 transition-colors"
+                >
+                  {isSearching ? <Loader2 size={14} className="animate-spin" /> : <Search size={14} />}
+                </button>
+              </form>
+
               <button
                 onClick={() => fetchSignals(true)}
                 disabled={loading}
@@ -344,7 +433,65 @@ export default function Dashboard() {
                 ))}
               </div>
 
-                {activeTab === 'scanner' && (
+              {/* SEARCH RESULTS VIEW */}
+              {searchResults.length > 0 ? (
+                <div className="space-y-6">
+                  <div className="flex items-center justify-between">
+                    <h2 className="text-xs font-black text-slate-500 uppercase tracking-widest">Search Results for "{searchQuery}"</h2>
+                    <button onClick={clearSearch} className="text-[10px] font-mono text-blue-500 hover:underline">Clear Results</button>
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    {searchResults.map((event: any) => {
+                      // If this event has been analyzed, show the MarketCard instead
+                      if (analyzedSearchResults[event.id]) {
+                        return <MarketCard key={event.id} signal={analyzedSearchResults[event.id]} />;
+                      }
+
+                      return (
+                        <div key={event.id} className="bg-slate-900/50 border border-slate-800 rounded-2xl p-6 group hover:border-blue-500/30 transition-all flex flex-col">
+                          <div className="flex justify-between items-start mb-4">
+                            <span className="text-[8px] font-mono text-slate-500 uppercase tracking-widest bg-slate-800 px-1.5 py-0.5 rounded border border-slate-700">RAW_EVENT</span>
+                            <span className="text-[9px] font-mono text-slate-600 uppercase">{event.category}</span>
+                          </div>
+                          <h3 className="text-white font-bold text-lg mb-4 line-clamp-2">{event.title}</h3>
+                          
+                          <div className="flex-1 space-y-2 mb-6">
+                            {event.markets.map((m: any) => (
+                              <div key={m.id} className="flex justify-between items-center bg-slate-950 p-3 rounded-xl border border-slate-800">
+                                <span className="text-[11px] text-slate-300 font-medium">{m.title}</span>
+                                <div className="flex items-center gap-4">
+                                  <span className="text-[11px] font-mono text-white">{(m.outcome1Price * 100).toFixed(0)}%</span>
+                                  <a 
+                                    href={`https://app.bayse.markets/market/${event.id}`} 
+                                    target="_blank" 
+                                    rel="noopener noreferrer"
+                                    className="p-1.5 bg-blue-600/10 hover:bg-blue-600/20 text-blue-500 rounded-lg transition"
+                                  >
+                                    <TrendingUp size={12} />
+                                  </a>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+
+                          <button 
+                            onClick={() => requestAnalysis(event.id)}
+                            disabled={analyzingEventId === event.id}
+                            className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-slate-800 hover:bg-blue-600 text-[10px] font-mono font-bold text-slate-300 hover:text-white rounded-xl transition-all disabled:opacity-50"
+                          >
+                            {analyzingEventId === event.id ? (
+                              <Loader2 className="animate-spin" size={14} />
+                            ) : (
+                              <Brain size={14} />
+                            )}
+                            {analyzingEventId === event.id ? "ANALYZING..." : "RUN_AI_INTELLIGENCE"}
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              ) : activeTab === 'scanner' && (
                   <>
                     {/* Filter Bar */}
                     <div className="flex flex-wrap gap-2 mb-6">

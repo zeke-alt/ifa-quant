@@ -33,9 +33,17 @@ export default function SignalCard({ signal }: { signal: MacroSignal }) {
         </span>
       </div>
 
-      <h5 className="text-sm font-bold text-slate-100 leading-snug mb-3 group-hover:text-blue-400 transition-colors">
-        {signal.headline}
-      </h5>
+      <div className="mb-3">
+        <div className="text-[8px] font-mono text-slate-500 uppercase tracking-widest mb-1">
+          {signal.eventTitle}
+        </div>
+        <h5 className="text-sm font-bold text-slate-100 leading-snug group-hover:text-blue-400 transition-colors">
+          {signal.headline}
+        </h5>
+        <p className="text-[9px] text-slate-500 italic mt-0.5">
+          {signal.marketTitle}
+        </p>
+      </div>
 
       {/* Logic Preview - Line clamped for neatness */}
       <p className="text-[11px] text-slate-500 line-clamp-2 italic leading-relaxed mb-4">
