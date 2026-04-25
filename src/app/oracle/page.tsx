@@ -105,31 +105,92 @@ export default function OraclePage() {
     }
   };
 
-  // Simple markdown-ish renderer
+  // Improved markdown-ish renderer
   const renderContent = (text: string) => {
     return text
       .split("\n")
       .map((line, i) => {
-        if (line.startsWith("**") && line.endsWith("**")) {
-          return <p key={i} className="font-bold text-white">{line.slice(2, -2)}</p>;
-        }
-        if (line.startsWith("*") && line.endsWith("*")) {
-          return <p key={i} className="italic text-slate-400">{line.slice(1, -1)}</p>;
-        }
-        if (line.startsWith("- ")) {
-          return <li key={i} className="ml-4 list-disc text-slate-300">{line.slice(2)}</li>;
-        }
         if (line.trim() === "") return <br key={i} />;
-        // Handle inline bold
-        const parts = line.split(/\*\*(.*?)\*\*/g);
+        
+        // Handle list items
+        if (line.startsWith("- ")) {
+          return (
+            <li key={i} className="ml-4 list-disc text-slate-300 mb-1">
+              {renderLineParts(line.slice(2))}
+            </li>
+          );
+        }
+
+        // Handle full-line bold headers
+        if (line.startsWith("**") && line.endsWith("**")) {
+          return (
+            <p key={i} className="font-bold text-white mb-2 mt-4 first:mt-0">
+              {renderLineParts(line.slice(2, -2))}
+            </p>
+          );
+        }
+
         return (
-          <p key={i} className="text-slate-300">
-            {parts.map((part, j) =>
-              j % 2 === 1 ? <strong key={j} className="text-white font-bold">{part}</strong> : part
-            )}
+          <p key={i} className="text-slate-300 mb-2">
+            {renderLineParts(line)}
           </p>
         );
       });
+  };
+
+  // Helper to render inline elements (bold, links, raw URLs)
+  const renderLineParts = (line: string) => {
+    // Regex to split by Markdown links [text](url), Bold **text**, or raw URLs
+    const parts = line.split(/(\*\*.*?\*\*|\[.*?\]\(.*?\)|https?:\/\/[^\s]+)/g);
+    
+    return parts.map((part, j) => {
+      if (!part) return null;
+
+      // Handle Bold
+      if (part.startsWith("**") && part.endsWith("**")) {
+        return (
+          <strong key={j} className="text-white font-bold">
+            {part.slice(2, -2)}
+          </strong>
+        );
+      }
+
+      // Handle Markdown Links [text](url)
+      if (part.startsWith("[") && part.includes("](")) {
+        const match = part.match(/\[(.*?)\]\((.*?)\)/);
+        if (match) {
+          return (
+            <a 
+              key={j} 
+              href={match[2]} 
+              target="_blank" 
+              rel="noopener noreferrer" 
+              className="text-blue-400 hover:text-blue-300 hover:underline font-bold transition-colors"
+            >
+              {match[1]}
+            </a>
+          );
+        }
+      }
+
+      // Handle Raw URLs
+      if (part.startsWith("http")) {
+        return (
+          <a 
+            key={j} 
+            href={part} 
+            target="_blank" 
+            rel="noopener noreferrer" 
+            className="text-blue-400 hover:text-blue-300 hover:underline break-all transition-colors"
+          >
+            {part}
+          </a>
+        );
+      }
+
+      // Plain text
+      return part;
+    });
   };
 
   return (

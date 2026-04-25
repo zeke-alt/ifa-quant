@@ -44,6 +44,9 @@ export interface MacroSignal {
   /** Market category */
   category?: string;
 
+  /** Market fee rate (e.g. 0.10) */
+  feeRate?: number;
+
   /** Historical probability trend */
   trend?: number[];
 }

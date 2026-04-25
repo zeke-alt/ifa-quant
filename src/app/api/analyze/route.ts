@@ -21,19 +21,26 @@ const ai = new GoogleGenAI({
 });
 
 // Logic: In-memory cache to prevent redundant AI calls and save on token usage
-// Cache lasts for 30 minutes unless 'force=true' is passed in the URL.
-let cache: { data: any; timestamp: number } | null = null;
+// Cache is now currency-specific.
+let cache: Record<string, { data: any; timestamp: number }> = {};
 const CACHE_DURATION = 1000 * 60 * 30;
+
+// Logic: The "Stability Latch"
+// We store a global history of signals to prevent AI jitter.
+// If a new prediction is within 4% of the old one, we stick with the old one.
+const STABILITY_THRESHOLD = 0.04;
+let signalHistory: Record<string, any> = {};
 
 export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
   const force = searchParams.get("force") === "true";
   const eventId = searchParams.get("eventId");
+  const currency = searchParams.get("currency") || "USD";
 
   // Check if we can serve from cache (only for global feed)
-  if (!eventId && !force && cache && Date.now() - cache.timestamp < CACHE_DURATION) {
-    console.log("CACHE_HIT: Serving existing intelligence signals");
-    return Response.json(cache.data);
+  if (!eventId && !force && cache[currency] && Date.now() - cache[currency].timestamp < CACHE_DURATION) {
+    console.log(`CACHE_HIT: Serving existing ${currency} intelligence signals`);
+    return Response.json(cache[currency].data);
   }
 
   try {
@@ -46,9 +53,9 @@ export async function GET(req: Request) {
       const event = data.event || (data.id ? data : null);
       events = event ? [event] : [];
     } else {
-      console.log("ANALYSIS_START: Fetching live markets from Bayse...");
+      console.log(`ANALYSIS_START: Fetching live markets (${currency}) from Bayse...`);
       const data = await bayseRead(
-        "/v1/pm/events?status=open&limit=10&size=10&currency=USD",
+        `/v1/pm/events?status=open&limit=10&size=10&currency=${currency}`,
       );
       events = data.events ?? [];
     }
@@ -70,18 +77,27 @@ export async function GET(req: Request) {
         totalOrders: m.totalOrders,
         liquidity: e.liquidity,
         category: e.category,
+        feeRate: m.feeRate ?? e.feeRate ?? 0.1,
       })),
     );
 
-    // Step 3: Compute Reliability
-    const maxLiquidity = Math.max(...flattenedMarkets.map((m: any) => m.liquidity ?? 0));
-    const maxOrders = Math.max(...flattenedMarkets.map((m: any) => m.totalOrders ?? 0));
+    // Step 3: Compute Absolute Market Math Benchmarks
+    // Targets: $50k Liquidity = 1.0, 500 Orders = 1.0
+    const LIQUIDITY_BENCHMARK = 50000;
+    const VOLUME_BENCHMARK = 500;
 
-    const marketsWithReliability = flattenedMarkets.map((m: any) => {
-      const liquidityScore = maxLiquidity > 0 ? Math.log1p(m.liquidity) / Math.log1p(maxLiquidity) : 0;
-      const volumeScore = maxOrders > 0 ? Math.log1p(m.totalOrders) / Math.log1p(maxOrders) : 0;
-      const source_reliability = parseFloat((liquidityScore * 0.6 + volumeScore * 0.4).toFixed(2));
-      return { ...m, source_reliability };
+    const marketsWithMath = flattenedMarkets.map((m: any) => {
+      const liquidityMath = Math.min(1, (m.liquidity ?? 0) / LIQUIDITY_BENCHMARK);
+      const volumeMath = Math.min(1, (m.totalOrders ?? 0) / VOLUME_BENCHMARK);
+      
+      return { 
+        ...m, 
+        market_math: {
+          liquidity_quality: parseFloat(liquidityMath.toFixed(2)),
+          volume_quality: parseFloat(volumeMath.toFixed(2)),
+          description: `Liquidity: $${(m.liquidity ?? 0).toLocaleString()}, Orders: ${m.totalOrders ?? 0}`
+        }
+      };
     });
 
     // Step 4: Construct the AI Prompt (The Alpha Filter)
@@ -92,9 +108,10 @@ STRICT RULES:
 1. One Signal per Event: Even if an event has 10 markets, you only return ONE signal for that event—the one with the largest gap between your assessed probability and the market price.
 2. Ignore Low-Alpha Trades: If a selection has no meaningful mispricing, do not generate a signal for it.
 3. Unique Headline: The headline must be specific to the SELECTION you chose, not just the event title.
+4. Reliability Fusion: Your "source_reliability" MUST be a fusion of your logical conviction AND the provided "market_math". If liquidity_quality is low (< 0.3), you MUST downgrade your reliability score regardless of how sure your logic is. Mention this in your logic.
 
-LIVE MARKET DATA:
-${JSON.stringify(marketsWithReliability, null, 2)}
+LIVE MARKET DATA WITH MATH BENCHMARKS:
+${JSON.stringify(marketsWithMath, null, 2)}
 
 Return a JSON object:
 {
@@ -111,10 +128,11 @@ Return a JSON object:
       "probability": <your YES probability 0-1>,
       "sentiment": <"BULLISH" | "BEARISH" | "RISK_ALERT" | "NEUTRAL">,
       "direction": <"BUY_YES" | "BUY_NO" | "WAIT">,
-      "logic": <2 paragraph reasoning explaining why THIS selection is the best play>,
-      "source_reliability": <copy exact>,
+      "logic": <2 paragraph reasoning. If reliability is low due to market_math, explain why.>,
+      "source_reliability": <your 0-1 FUSED confidence score (Logic + Market Math)>,
       "historical_accuracy": <0-1>,
       "category": <copy exact>,
+      "feeRate": <copy exact>,
       "yesProbability": <copy exact price>
     }
   ]
@@ -134,7 +152,7 @@ Find the alpha. Focus on Nigerian/African macro context.`;
 
     const signals = JSON.parse(responseText);
 
-    // Step 6: Post-Processing Deduplication (Safety First)
+    // Step 6: Post-Processing Deduplication & Stability Latching
     // Ensure we only have one signal per eventId even if AI hallucinated
     const seenEvents = new Set();
     signals.signals = signals.signals.filter((s: any) => {
@@ -143,28 +161,38 @@ Find the alpha. Focus on Nigerian/African macro context.`;
       return true;
     });
 
-    // Map compatibility fields
-    signals.signals = signals.signals.map((s: any) => ({
-      ...s,
-      market_question: s.marketTitle
-    }));
+    // Apply Stability Latch
+    signals.signals = signals.signals.map((s: any) => {
+      const prev = signalHistory[s.marketId];
+      if (prev) {
+        const delta = Math.abs(Number(s.probability) - Number(prev.probability));
+        if (delta < STABILITY_THRESHOLD) {
+          // Latch to previous probability and logic to maintain consistency
+          console.log(`LATCH_ACTIVE: Stabilizing ${s.marketId} (delta: ${(delta * 100).toFixed(1)}%)`);
+          return {
+            ...s,
+            probability: prev.probability,
+            logic: prev.logic, // Keep reasoning consistent too
+            market_question: s.marketTitle
+          };
+        }
+      }
+      
+      // Significant change or new signal — update history
+      signalHistory[s.marketId] = s;
+      return { ...s, market_question: s.marketTitle };
+    });
 
     // Update Cache
-    cache = { data: signals, timestamp: Date.now() };
-    console.log(`VERTEX_SUCCESS: Generated ${signals.signals.length} unique alpha signals.`);
-
-    return Response.json(signals);
-
-    // Update Cache
-    cache = { data: signals, timestamp: Date.now() };
-    console.log("VERTEX_SUCCESS: Generated fresh macro intelligence.");
+    cache[currency] = { data: signals, timestamp: Date.now() };
+    console.log(`VERTEX_SUCCESS: Generated ${signals.signals.length} unique alpha signals for ${currency}.`);
 
     return Response.json(signals);
   } catch (err) {
     // Logic: Fallback to stale cache if AI call fails, ensuring uptime.
-    if (cache) {
-      console.warn("VERTEX_FAILED: Serving stale cache as fallback.");
-      return Response.json(cache.data);
+    if (cache[currency]) {
+      console.warn(`VERTEX_FAILED: Serving stale ${currency} cache as fallback.`);
+      return Response.json(cache[currency].data);
     }
     console.error("ANALYZE_ERROR:", err);
     return Response.json({ error: "Analysis failed" }, { status: 500 });

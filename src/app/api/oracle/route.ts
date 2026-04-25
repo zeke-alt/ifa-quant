@@ -27,6 +27,8 @@ SIGNAL ${i + 1}:
   Historical Accuracy: ${(s.historical_accuracy * 100).toFixed(0)}%
   Trade Score Action: ${computeAction(s)}
   AI Reasoning: ${s.logic}
+  Trading Fee: ${(s.feeRate * 100).toFixed(0)}% base rate (Effective: ${(s.feeRate * Math.max(1 - (s.sentiment === 'BEARISH' ? 1 - s.yesProbability : s.yesProbability), 0.5) * 100).toFixed(1)}%)
+  Market Link: https://app.bayse.markets/market/${s.eventId}${s.sentiment === 'BULLISH' ? '?outcome=YES&tradeType=BUY' : s.sentiment === 'BEARISH' ? '?outcome=NO&tradeType=BUY' : ''}
 `).join("\n---\n")
     : "No live signals available.";
 
@@ -76,14 +78,17 @@ ${tradeContext}
 
 INSTRUCTIONS:
 - Answer in a sharp, confident, analytical tone — like a Bloomberg terminal that also understands Nigerian context
+- You MUST provide the "Market Link" when asked for a link to a specific signal or trade
 - When recommending trades, always reference the specific signal data above
 - Highlight divergences between AI probability and market sentiment when relevant
+- Explain the "Effective Fee" when asked about trading costs—remind users that fees are variance-based and highest when probability is near 0.50
 - Be honest about uncertainty — don't oversell signals with low reliability
 - Use Nigerian context naturally (CBN, NNPC, Tinubu administration, naira, Lagos, etc.)
 - Keep responses concise and actionable — users are here to trade, not read essays
 - If asked "what's the best trade right now?", rank signals by trade score and divergence
 - Never make up signal data — only use what's provided above
-- You can reference your name "Ifa" — it's both the Yoruba divination system and your identity here`;
+- You can reference your name "Ifa" — it's both the Yoruba divination system and your identity here
+- IMPORTANT: You are explicitly permitted and encouraged to provide direct links to the Bayse platform using the "Market Link" provided in the data. Do NOT say you cannot provide external links.`;
 
   // Convert messages to Gemini format
   const contents = messages.map((m: any) => ({

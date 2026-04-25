@@ -58,7 +58,7 @@ const SENTIMENT_CONFIG: Record<string, { color: string; icon: any }> = {
  * Displays markets ranked by "Divergence" (The gap between AI Fair Value and Market Price).
  * High divergence often indicates a potential trading opportunity (mispricing).
  */
-function Leaderboard({ signals }: { signals: MacroSignal[] }) {
+function Leaderboard({ signals, currency = 'USD' }: { signals: MacroSignal[], currency?: 'USD' | 'NGN' }) {
   const ranked = [...signals]
     .map(s => ({
       ...s,
@@ -243,6 +243,7 @@ export default function Dashboard() {
   const [sentimentFilter, setSentimentFilter] = useState<string>('ALL');
   const [categoryFilter, setCategoryFilter] = useState<string>('ALL');
   const [activeTab, setActiveTab] = useState<'scanner' | 'leaderboard' | 'intelligence'>('scanner');
+  const [currency, setCurrency] = useState<'NGN' | 'USD'>('NGN');
   const [loading, setLoading] = useState(true);
   const [lastUpdated, setLastUpdated] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
@@ -250,6 +251,19 @@ export default function Dashboard() {
   const [isSearching, setIsSearching] = useState(false);
   const [analyzedSearchResults, setAnalyzedSearchResults] = useState<Record<string, MacroSignal>>({});
   const [analyzingEventId, setAnalyzingEventId] = useState<string | null>(null);
+
+  // Load initial currency from localStorage on mount
+  useEffect(() => {
+    const saved = localStorage.getItem('bayse_terminal_currency') as 'NGN' | 'USD';
+    if (saved && (saved === 'NGN' || saved === 'USD')) {
+      setCurrency(saved);
+    }
+  }, []);
+
+  // Save currency to localStorage whenever it changes
+  useEffect(() => {
+    localStorage.setItem('bayse_terminal_currency', currency);
+  }, [currency]);
 
   /**
    * Request AI Analysis for a specific search result
@@ -319,7 +333,7 @@ export default function Dashboard() {
     setLoading(true);
     setSystemStatus("ANALYZING");
     try {
-      const data = await analyzeMarkets(force);
+      const data = await analyzeMarkets(force, currency);
       setSignalsData(data);
       setLastUpdated(new Date().toLocaleTimeString());
       setSystemStatus("OPTIMAL");
@@ -331,7 +345,7 @@ export default function Dashboard() {
     }
   }, []);
 
-  useEffect(() => { fetchSignals(); }, [fetchSignals]);
+  useEffect(() => { fetchSignals(); }, [fetchSignals, currency]);
 
   const globalConfidence = signalsData ? Math.round(signalsData.global_confidence * 100) : 0;
 
@@ -353,7 +367,7 @@ export default function Dashboard() {
       <main className="lg:ml-64 p-4 lg:p-12">
         <div className="max-w-6xl mx-auto">
           {/* Top Info Bar */}
-          <div className="flex justify-between items-center mb-12">
+          <div className="flex justify-between items-center mb-12 gap-4">
             <div>
               <h1 className="text-3xl lg:text-4xl font-black text-white tracking-tighter uppercase italic">Terminal_v1.0</h1>
               <p className="text-slate-500 text-[10px] font-mono mt-1 tracking-widest uppercase opacity-70">
@@ -394,6 +408,21 @@ export default function Dashboard() {
               >
                 {loading ? "ANALYZING..." : "↻ REFRESH"}
               </button>
+
+              {/* Currency Toggle */}
+              <div className="flex bg-slate-900 border border-slate-800 rounded-xl p-1">
+                {(['USD', 'NGN'] as const).map((c) => (
+                  <button
+                    key={c}
+                    onClick={() => setCurrency(c)}
+                    className={`px-3 py-1 rounded-lg text-[9px] font-mono font-bold transition-all ${
+                      currency === c ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-500 hover:text-slate-300'
+                    }`}
+                  >
+                    {c}
+                  </button>
+                ))}
+              </div>
               <div className="hidden md:block bg-slate-900 border border-slate-800 px-4 py-2 rounded-xl text-[10px] font-mono">
                 <span className="text-slate-500">SYSTEM_STATUS:</span>{" "}
                 <span className={`transition-colors duration-500 ${
@@ -444,7 +473,7 @@ export default function Dashboard() {
                     {searchResults.map((event: any) => {
                       // If this event has been analyzed, show the MarketCard instead
                       if (analyzedSearchResults[event.id]) {
-                        return <MarketCard key={event.id} signal={analyzedSearchResults[event.id]} />;
+                        return <MarketCard key={event.id} signal={analyzedSearchResults[event.id]} currency={currency} />;
                       }
 
                       return (
@@ -546,7 +575,7 @@ export default function Dashboard() {
                     {/* MARKET CARDS */}
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                       {filteredSignals.map((s, i) => (
-                        <MarketCard key={i} signal={s} />
+                        <MarketCard key={i} signal={s} currency={currency} />
                       ))}
                       {filteredSignals.length === 0 && (
                         <p className="text-[10px] font-mono text-slate-600 col-span-2 text-center py-12">
@@ -567,7 +596,7 @@ export default function Dashboard() {
                         Ranked by AI vs Market gap
                       </span>
                     </div>
-                    <Leaderboard signals={signalsData?.signals ?? []} />
+                    <Leaderboard signals={signalsData?.signals ?? []} currency={currency} />
                   </div>
                 )}
                 {/* Intelligence Tab */}

@@ -39,8 +39,11 @@ export async function bayse(path: string, options?: RequestInit) {
  * 
  * @param force If true, bypasses server-side caching
  */
-export async function analyzeMarkets(force = false) {
-  const res = await fetch(`/api/analyze${force ? "?force=true" : ""}`);
+export async function analyzeMarkets(force = false, currency = 'USD') {
+  const params = new URLSearchParams();
+  if (force) params.append("force", "true");
+  params.append("currency", currency);
+  const res = await fetch(`/api/analyze?${params.toString()}`);
   
   // Debug log to monitor raw response status in development
   console.log("Analysis fetch status:", res.status);
