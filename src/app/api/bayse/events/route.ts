@@ -1,13 +1,17 @@
+import { NextResponse } from "next/server";
 import { bayseRead } from "@/lib/bayse-server";
 
-export async function GET(req: Request) {
-  const { searchParams } = new URL(req.url);
-  const keyword = searchParams.get('keyword') ?? '';
-  const status = searchParams.get('status') ?? 'open';
-  const limit = searchParams.get('limit') ?? '10';
+export async function GET(
+  req: Request,
+  { params }: { params: Promise<{ eventId: string; marketId: string }> }
+) {
+  const { eventId, marketId } = await params;
 
-  const data = await bayseRead(
-    `/v1/pm/events?keyword=${encodeURIComponent(keyword)}&status=${status}&limit=${limit}`
-  );
-  return Response.json(data);
+  try {
+    const data = await bayseRead(`/v1/pm/events/${eventId}/markets/${marketId}`);
+    return NextResponse.json(data);
+  } catch (err) {
+    console.error("[/api/bayse/markets GET]", err);
+    return NextResponse.json({ message: "Failed to reach Bayse API" }, { status: 502 });
+  }
 }

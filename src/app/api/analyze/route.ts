@@ -1,6 +1,6 @@
 /**
  * Market Analysis API Route
- * 
+ *
  * This route orchestrates the core "intelligence" of the application.
  * It fetches live market data from Bayse, processes it for reliability,
  * and passes it to Vertex AI (Gemini) to generate actionable trading signals.
@@ -10,9 +10,10 @@ import { bayseRead } from "@/lib/bayse-server";
 import { GoogleGenAI } from "@google/genai";
 console.log("ENV CHECK:", {
   hasGemini: !!process.env.GEMINI_API_KEY,
-  hasBayseKey: !!process.env.BAYSE_API_KEY,
-  hasBayseSecret: !!process.env.BAYSE_API_SECRET,
+  hasBayseKey: !!process.env.BAYSE_PUBLIC_KEY,
+  hasBayseSecret: !!process.env.BAYSE_SECRET_KEY,
 });
+
 // Initialize Vertex AI with Project & Location from env
 const ai = new GoogleGenAI({
   vertexai: true,
@@ -38,22 +39,33 @@ export async function GET(req: Request) {
   const currency = searchParams.get("currency") || "USD";
 
   // Check if we can serve from cache (only for global feed)
-  if (!eventId && !force && cache[currency] && Date.now() - cache[currency].timestamp < CACHE_DURATION) {
+  if (
+    !eventId &&
+    !force &&
+    cache[currency] &&
+    Date.now() - cache[currency].timestamp < CACHE_DURATION
+  ) {
     console.log(`CACHE_HIT: Serving existing ${currency} intelligence signals`);
     return Response.json(cache[currency].data);
   }
 
   try {
-    let events = [];
+    let events: any[] = [];
+    // In your GET handler, right after you get events, add:
+    console.log("[EVENT SAMPLE]", JSON.stringify(events[0], null, 2));
 
     if (eventId) {
-      console.log(`ANALYSIS_START: Fetching specific event ${eventId} from Bayse...`);
+      console.log(
+        `ANALYSIS_START: Fetching specific event ${eventId} from Bayse...`,
+      );
       const data = await bayseRead(`/v1/pm/events/${eventId}`);
       // Handle both { event: {...} } and {...} formats
       const event = data.event || (data.id ? data : null);
       events = event ? [event] : [];
     } else {
-      console.log(`ANALYSIS_START: Fetching live markets (${currency}) from Bayse...`);
+      console.log(
+        `ANALYSIS_START: Fetching live markets (${currency}) from Bayse...`,
+      );
       const data = await bayseRead(
         `/v1/pm/events?status=open&limit=10&size=10&currency=${currency}`,
       );
@@ -65,8 +77,6 @@ export async function GET(req: Request) {
     }
 
     // Step 2: Flatten markets for individual analysis
-    // Logic: Every selection is a unique trade. We flatten them but keep the event context
-    // so the AI can differentiate between multiple selections under the same event.
     const flattenedMarkets = events.flatMap((e: any) =>
       e.markets.map((m: any) => ({
         eventId: e.id,
@@ -87,16 +97,19 @@ export async function GET(req: Request) {
     const VOLUME_BENCHMARK = 500;
 
     const marketsWithMath = flattenedMarkets.map((m: any) => {
-      const liquidityMath = Math.min(1, (m.liquidity ?? 0) / LIQUIDITY_BENCHMARK);
+      const liquidityMath = Math.min(
+        1,
+        (m.liquidity ?? 0) / LIQUIDITY_BENCHMARK,
+      );
       const volumeMath = Math.min(1, (m.totalOrders ?? 0) / VOLUME_BENCHMARK);
-      
-      return { 
-        ...m, 
+
+      return {
+        ...m,
         market_math: {
           liquidity_quality: parseFloat(liquidityMath.toFixed(2)),
           volume_quality: parseFloat(volumeMath.toFixed(2)),
-          description: `Liquidity: $${(m.liquidity ?? 0).toLocaleString()}, Orders: ${m.totalOrders ?? 0}`
-        }
+          description: `Liquidity: $${(m.liquidity ?? 0).toLocaleString()}, Orders: ${m.totalOrders ?? 0}`,
+        },
       };
     });
 
@@ -165,19 +178,23 @@ Find the alpha. Focus on Nigerian/African macro context.`;
     signals.signals = signals.signals.map((s: any) => {
       const prev = signalHistory[s.marketId];
       if (prev) {
-        const delta = Math.abs(Number(s.probability) - Number(prev.probability));
+        const delta = Math.abs(
+          Number(s.probability) - Number(prev.probability),
+        );
         if (delta < STABILITY_THRESHOLD) {
           // Latch to previous probability and logic to maintain consistency
-          console.log(`LATCH_ACTIVE: Stabilizing ${s.marketId} (delta: ${(delta * 100).toFixed(1)}%)`);
+          console.log(
+            `LATCH_ACTIVE: Stabilizing ${s.marketId} (delta: ${(delta * 100).toFixed(1)}%)`,
+          );
           return {
             ...s,
             probability: prev.probability,
             logic: prev.logic, // Keep reasoning consistent too
-            market_question: s.marketTitle
+            market_question: s.marketTitle,
           };
         }
       }
-      
+
       // Significant change or new signal — update history
       signalHistory[s.marketId] = s;
       return { ...s, market_question: s.marketTitle };
@@ -185,13 +202,17 @@ Find the alpha. Focus on Nigerian/African macro context.`;
 
     // Update Cache
     cache[currency] = { data: signals, timestamp: Date.now() };
-    console.log(`VERTEX_SUCCESS: Generated ${signals.signals.length} unique alpha signals for ${currency}.`);
+    console.log(
+      `VERTEX_SUCCESS: Generated ${signals.signals.length} unique alpha signals for ${currency}.`,
+    );
 
     return Response.json(signals);
   } catch (err) {
     // Logic: Fallback to stale cache if AI call fails, ensuring uptime.
     if (cache[currency]) {
-      console.warn(`VERTEX_FAILED: Serving stale ${currency} cache as fallback.`);
+      console.warn(
+        `VERTEX_FAILED: Serving stale ${currency} cache as fallback.`,
+      );
       return Response.json(cache[currency].data);
     }
     console.error("ANALYZE_ERROR:", err);

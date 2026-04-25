@@ -8,31 +8,16 @@
  *   src/app/api/bayse/events/[eventId]/markets/[marketId]/orders/route.ts
  */
 
-import { NextRequest, NextResponse } from "next/server";
-import crypto from "crypto";
-
-const BAYSE_API_KEY = process.env.BAYSE_API_KEY!;
-const BAYSE_API_SECRET = process.env.BAYSE_API_SECRET!;
-const BAYSE_BASE_URL = process.env.BAYSE_BASE_URL ?? "https://api.bayse.markets";
-
-function signRequest(
-  method: string,
-  path: string,
-  body: string,
-  timestamp: string
-): string {
-  const bodyHash = crypto.createHash("sha256").update(body).digest("hex");
-  const signingString = `${timestamp}\n${method.toUpperCase()}\n${path}\n${bodyHash}`;
-  return crypto.createHmac("sha256", BAYSE_API_SECRET).update(signingString).digest("hex");
-}
+import { NextResponse } from "next/server";
+import { bayseWrite } from "@/lib/bayse-server";
 
 export async function POST(
-  req: NextRequest,
+  req: Request,
   { params }: { params: { eventId: string; marketId: string } }
 ) {
   const { eventId, marketId } = params;
 
-  let body: Record<string, unknown>;
+  let body: any;
   try {
     body = await req.json();
   } catch {
@@ -50,40 +35,24 @@ export async function POST(
 
   const baysePath = `/v1/pm/events/${eventId}/markets/${marketId}/orders?currency=${currency}`;
 
-  const requestBody: Record<string, unknown> = { side, outcome, amount };
-  // CLOB-only fields — omit for AMM orders
+  const requestBody: Record<string, any> = { side, outcome, amount };
   if (price !== undefined) requestBody.price = price;
   if (timeInForce !== undefined) requestBody.timeInForce = timeInForce;
 
-  const bodyString = JSON.stringify(requestBody);
-  const timestamp = Date.now().toString();
-  const signature = signRequest("POST", baysePath, bodyString, timestamp);
-
   try {
-    const response = await fetch(`${BAYSE_BASE_URL}${baysePath}`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "X-Api-Key": BAYSE_API_KEY,
-        "X-Timestamp": timestamp,
-        "X-Signature": signature,
-      },
-      body: bodyString,
-    });
+    const data = await bayseWrite("POST", baysePath, requestBody);
 
-    const data = await response.json();
-
-    if (!response.ok) {
+    if (data?.message && !data?.id) {
       return NextResponse.json(
-        { message: data?.message ?? "Bayse API error" },
-        { status: response.status }
+        { message: data.message },
+        { status: 400 }
       );
     }
 
-    // Returns: { id, status, side, outcome, amount, price?, timeInForce?, ... }
     return NextResponse.json(data);
   } catch (err) {
     console.error("[/api/bayse/orders] Upstream error:", err);
     return NextResponse.json({ message: "Failed to reach Bayse API" }, { status: 502 });
   }
 }
+

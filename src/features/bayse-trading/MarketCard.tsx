@@ -18,10 +18,10 @@ import QuoteDrawer from '@/components/ui/QuoteDrawer';
 
 // ── Sentiment config ────────────────────────────────────────────────────────
 const SENTIMENT_CONFIG = {
-  BULLISH:    { icon: TrendingUp,    color: 'text-green-500',  bg: 'bg-green-500/10',  label: 'BULLISH'    },
-  BEARISH:    { icon: TrendingDown,  color: 'text-red-500',    bg: 'bg-red-500/10',    label: 'BEARISH'    },
+  BULLISH: { icon: TrendingUp, color: 'text-green-500', bg: 'bg-green-500/10', label: 'BULLISH' },
+  BEARISH: { icon: TrendingDown, color: 'text-red-500', bg: 'bg-red-500/10', label: 'BEARISH' },
   RISK_ALERT: { icon: AlertTriangle, color: 'text-orange-500', bg: 'bg-orange-500/10', label: 'RISK_ALERT' },
-  NEUTRAL:    { icon: Minus,         color: 'text-slate-400',  bg: 'bg-slate-500/10',  label: 'NEUTRAL'    },
+  NEUTRAL: { icon: Minus, color: 'text-slate-400', bg: 'bg-slate-500/10', label: 'NEUTRAL' },
 };
 
 // ── Trade score engine ──────────────────────────────────────────────────────
@@ -43,15 +43,15 @@ const SENTIMENT_CONFIG = {
  */
 function computeTradeScore(signal: MacroSignal) {
   // Guard against Gemini returning strings instead of numbers
-  const probability        = Number(signal.probability);
+  const probability = Number(signal.probability);
   const source_reliability = Number(signal.source_reliability);
   const historical_accuracy = Number(signal.historical_accuracy);
 
   const sentimentModifier =
     signal.sentiment === 'RISK_ALERT' ? -15
-    : signal.sentiment === 'NEUTRAL'  ? -5
-    : signal.sentiment === 'BEARISH'  ? -10
-    : 0;
+      : signal.sentiment === 'NEUTRAL' ? -5
+        : signal.sentiment === 'BEARISH' ? -10
+          : 0;
 
   const score = Math.min(100, Math.max(0,
     (probability * 0.4 + source_reliability * 0.3 + historical_accuracy * 0.3) * 100
@@ -64,25 +64,25 @@ function computeTradeScore(signal: MacroSignal) {
   let reasoning: string;
 
   if (score >= 75) {
-    action      = 'STRONG BUY ↑';
+    action = 'STRONG BUY ↑';
     actionColor = 'text-green-400';
-    actionBg    = 'bg-green-500/10 border-green-500/30';
-    reasoning   = `High confidence signal. AI probability is ${(probability * 100).toFixed(0)}%, backed by a ${(source_reliability * 100).toFixed(0)}% reliable source with ${(historical_accuracy * 100).toFixed(0)}% historical accuracy. Risk is low — conditions strongly favor a YES outcome.`;
+    actionBg = 'bg-green-500/10 border-green-500/30';
+    reasoning = `High confidence signal. AI probability is ${(probability * 100).toFixed(0)}%, backed by a ${(source_reliability * 100).toFixed(0)}% reliable source with ${(historical_accuracy * 100).toFixed(0)}% historical accuracy. Risk is low — conditions strongly favor a YES outcome.`;
   } else if (score >= 58) {
-    action      = 'BUY ↑';
+    action = 'BUY ↑';
     actionColor = 'text-blue-400';
-    actionBg    = 'bg-blue-500/10 border-blue-500/30';
-    reasoning   = `Moderate confidence. The signal leans positive but has some uncertainty — either the source isn't fully reliable or historical accuracy is mixed. Consider a smaller position size.`;
+    actionBg = 'bg-blue-500/10 border-blue-500/30';
+    reasoning = `Moderate confidence. The signal leans positive but has some uncertainty — either the source isn't fully reliable or historical accuracy is mixed. Consider a smaller position size.`;
   } else if (score >= 42) {
-    action      = 'HOLD';
+    action = 'HOLD';
     actionColor = 'text-slate-400';
-    actionBg    = 'bg-slate-500/10 border-slate-500/30';
-    reasoning   = `Mixed signals. The AI probability and data quality don't align strongly enough to justify a trade right now. Wait for the market to develop more clarity before entering.`;
+    actionBg = 'bg-slate-500/10 border-slate-500/30';
+    reasoning = `Mixed signals. The AI probability and data quality don't align strongly enough to justify a trade right now. Wait for the market to develop more clarity before entering.`;
   } else {
-    action      = 'AVOID ↓';
+    action = 'AVOID ↓';
     actionColor = 'text-red-400';
-    actionBg    = 'bg-red-500/10 border-red-500/30';
-    reasoning   = `Weak or risky signal. ${signal.sentiment === 'RISK_ALERT' ? 'A RISK_ALERT sentiment was flagged — ' : ''}Low source reliability or poor historical accuracy makes this trade unfavorable. The downside risk outweighs potential gains.`;
+    actionBg = 'bg-red-500/10 border-red-500/30';
+    reasoning = `Weak or risky signal. ${signal.sentiment === 'RISK_ALERT' ? 'A RISK_ALERT sentiment was flagged — ' : ''}Low source reliability or poor historical accuracy makes this trade unfavorable. The downside risk outweighs potential gains.`;
   }
 
   return { score, action, actionColor, actionBg, reasoning };
@@ -121,13 +121,13 @@ function QuoteModal({
   currency?: 'USD' | 'NGN';
   onClose: () => void;
 }) {
-  // Close on Escape
+  const [outcomeId, setOutcomeId] = useState<string | null>(null);
+  const [loadingOutcome, setLoadingOutcome] = useState(true);
+
+  // Close on Escape + lock body scroll
   useEffect(() => {
-    const handleKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
-    };
+    const handleKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
     window.addEventListener('keydown', handleKey);
-    // Prevent body scroll while modal is open
     document.body.style.overflow = 'hidden';
     return () => {
       window.removeEventListener('keydown', handleKey);
@@ -135,27 +135,67 @@ function QuoteModal({
     };
   }, [onClose]);
 
-  // Derive the default outcome from signal direction/sentiment
-  const defaultOutcome =
-    signal.direction === 'BUY_NO' ? 'NO' : 'YES';
+  // Fetch real outcome IDs from Bayse on-demand
+  useEffect(() => {
+    let isMounted = true;
 
-  // Derive engine — fall back to AMM if not specified on the signal
-  // Extend MacroSignal type to include engine if your Bayse response returns it
+    async function resolveIds() {
+      if (!signal) return;
+
+      // 1. Check if they are already in the signal (cached)
+      if (signal.yesOutcomeId && signal.noOutcomeId) {
+        setOutcomeId(signal.direction === 'BUY_NO' ? signal.noOutcomeId : signal.yesOutcomeId);
+        setLoadingOutcome(false);
+        return;
+      }
+
+      // 2. Otherwise, fetch them now
+      try {
+        const res = await fetch(`/api/bayse/events/${signal.eventId}/markets/${signal.marketId}`);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        
+        const data = await res.json();
+        
+        // Handle various possible Bayse API response shapes
+        const outcomes = data?.outcomes || data?.market?.outcomes || [];
+        
+        const yes = outcomes.find((o: any) => 
+          o.name?.toLowerCase() === 'yes' || o.title?.toLowerCase() === 'yes'
+        );
+        const no = outcomes.find((o: any) => 
+          o.name?.toLowerCase() === 'no' || o.title?.toLowerCase() === 'no'
+        );
+
+        if (isMounted) {
+          if (yes?.id) signal.yesOutcomeId = yes.id;
+          if (no?.id) signal.noOutcomeId = no.id;
+
+          const activeId = signal.direction === 'BUY_NO' ? no?.id : yes?.id;
+          setOutcomeId(activeId || (signal.direction === 'BUY_NO' ? 'NO' : 'YES'));
+        }
+      } catch (err) {
+        console.error("Failed to fetch outcome IDs, falling back to defaults:", err);
+        if (isMounted) {
+          setOutcomeId(signal.direction === 'BUY_NO' ? 'NO' : 'YES');
+        }
+      } finally {
+        if (isMounted) setLoadingOutcome(false);
+      }
+    }
+
+    resolveIds();
+    return () => { isMounted = false; };
+  }, [signal]);
+
   const engine = (signal as MacroSignal & { engine?: 'AMM' | 'CLOB' }).engine ?? 'AMM';
 
   return (
-    // Backdrop
     <div
       className="fixed inset-0 z-50 flex items-center justify-center p-4"
       style={{ background: 'rgba(0, 0, 0, 0.75)', backdropFilter: 'blur(4px)' }}
       onClick={onClose}
     >
-      {/* Modal container — stop click from bubbling to backdrop */}
-      <div
-        className="relative w-full max-w-[420px]"
-        onClick={(e) => e.stopPropagation()}
-      >
-        {/* Close button (top-right, outside the drawer) */}
+      <div className="relative w-full max-w-[420px]" onClick={(e) => e.stopPropagation()}>
         <button
           onClick={onClose}
           className="absolute -top-10 right-0 text-slate-400 hover:text-white transition-colors flex items-center gap-1.5 text-xs font-mono"
@@ -163,24 +203,24 @@ function QuoteModal({
           ESC <X size={14} />
         </button>
 
-        {/*
-         * QuoteDrawer receives the eventId + marketId from the signal
-         * so it can hit the right Bayse API endpoints.
-         * onOrderConfirmed closes the modal after a successful placement.
-         */}
-        <QuoteDrawer
-          eventId={signal.eventId}
-          marketId={signal.marketId}
-          defaultOutcome={defaultOutcome}
-          engine={engine}
-          currencyProp={currency}
-          aiProbability={Number(signal.probability)}
-          onOrderConfirmed={(_orderId) => {
-            // Could also trigger a portfolio refetch here if you have one
-            onClose();
-          }}
-          onClose={onClose}
-        />
+        {loadingOutcome ? (
+          <div className="text-slate-400 text-xs font-mono text-center p-6">
+            Loading market data...
+          </div>
+        ) : (
+          <QuoteDrawer
+            eventId={signal.eventId}
+            marketId={signal.marketId}
+            defaultOutcome={outcomeId ?? 'YES'}
+            yesOutcomeId={signal.yesOutcomeId}
+            noOutcomeId={signal.noOutcomeId}
+            engine={engine}
+            currencyProp={currency}
+            aiProbability={Number(signal.probability)}
+            onOrderConfirmed={(_orderId) => onClose()}
+            onClose={onClose}
+          />
+        )}
       </div>
     </div>
   );
@@ -188,40 +228,40 @@ function QuoteModal({
 
 // ── MarketCard ──────────────────────────────────────────────────────────────
 export default function MarketCard({ signal, currency = 'USD' }: { signal: MacroSignal, currency?: 'USD' | 'NGN' }) {
-  const [expanded,  setExpanded]  = useState(false);
+  const [expanded, setExpanded] = useState(false);
   // showQuote lives here, inside the component — not at module scope
   const [showQuote, setShowQuote] = useState(false);
 
-  const probability  = Number(signal.probability);
-  const prob         = (probability * 100).toFixed(0);
-  const sentiment    = signal.sentiment ?? 'NEUTRAL';
-  const config       = SENTIMENT_CONFIG[sentiment] ?? SENTIMENT_CONFIG.NEUTRAL;
+  const probability = Number(signal.probability);
+  const prob = (probability * 100).toFixed(0);
+  const sentiment = signal.sentiment ?? 'NEUTRAL';
+  const config = SENTIMENT_CONFIG[sentiment] ?? SENTIMENT_CONFIG.NEUTRAL;
   const SentimentIcon = config.icon;
 
   // Momentum derived from probability deviation from 0.5, weighted by signal quality
-  const signalStrength  = (signal.source_reliability + signal.historical_accuracy) / 2;
-  const momentumValue   = (signal.probability - 0.5) * signalStrength * 100;
-  const momentumLabel   =
-    momentumValue >  3 ? `UPWARD +${momentumValue.toFixed(1)}%`
-    : momentumValue < -3 ? `DOWNWARD ${momentumValue.toFixed(1)}%`
-    : 'STABLE';
-  const momentumColor   =
-    momentumValue >  3 ? 'text-green-500'
-    : momentumValue < -3 ? 'text-red-500'
-    : 'text-slate-400';
+  const signalStrength = (signal.source_reliability + signal.historical_accuracy) / 2;
+  const momentumValue = (signal.probability - 0.5) * signalStrength * 100;
+  const momentumLabel =
+    momentumValue > 3 ? `UPWARD +${momentumValue.toFixed(1)}%`
+      : momentumValue < -3 ? `DOWNWARD ${momentumValue.toFixed(1)}%`
+        : 'STABLE';
+  const momentumColor =
+    momentumValue > 3 ? 'text-green-500'
+      : momentumValue < -3 ? 'text-red-500'
+        : 'text-slate-400';
 
   // Trade recommendation
   const { score, action, actionColor, actionBg, reasoning } = computeTradeScore(signal);
 
-  const direction      = signal.direction;
+  const direction = signal.direction;
   const directionLabel =
     direction === 'BUY_YES' ? 'BUY ↑'
-    : direction === 'BUY_NO' ? 'BUY ↓'
-    : 'HOLD';
+      : direction === 'BUY_NO' ? 'BUY ↓'
+        : 'HOLD';
   const directionColor =
     direction === 'BUY_YES' ? 'text-green-500'
-    : direction === 'BUY_NO' ? 'text-red-500'
-    : 'text-slate-400';
+      : direction === 'BUY_NO' ? 'text-red-500'
+        : 'text-slate-400';
 
   // Whether the trade score is actionable (not HOLD or AVOID)
   const isActionable = score >= 58;
@@ -293,7 +333,7 @@ export default function MarketCard({ signal, currency = 'USD' }: { signal: Macro
           <div className="grid grid-cols-2 gap-2 mb-4">
             {[
               { label: 'ANALYSIS_CONFIDENCE', value: signal.source_reliability },
-              { label: 'HIST_ACCURACY',   value: signal.historical_accuracy },
+              { label: 'HIST_ACCURACY', value: signal.historical_accuracy },
             ].map(({ label, value }) => (
               <div key={label} className="bg-slate-950 rounded-lg p-2">
                 <div className="text-[9px] font-mono text-slate-500 mb-1">{label}</div>
@@ -373,12 +413,11 @@ export default function MarketCard({ signal, currency = 'USD' }: { signal: Macro
               </div>
               <div className="h-1 bg-slate-800 rounded-full">
                 <div
-                  className={`h-full rounded-full transition-all ${
-                    score >= 75 ? 'bg-green-500'
+                  className={`h-full rounded-full transition-all ${score >= 75 ? 'bg-green-500'
                     : score >= 58 ? 'bg-blue-500'
-                    : score >= 42 ? 'bg-slate-400'
-                    : 'bg-red-500'
-                  }`}
+                      : score >= 42 ? 'bg-slate-400'
+                        : 'bg-red-500'
+                    }`}
                   style={{ width: `${score}%` }}
                 />
               </div>

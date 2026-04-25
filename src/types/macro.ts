@@ -49,4 +49,10 @@ export interface MacroSignal {
 
   /** Historical probability trend */
   trend?: number[];
+
+  /** Bayse Outcome IDs */
+  yesOutcomeId: string;
+
+  /** Bayse Outcome IDs */
+  noOutcomeId: string;
 }

@@ -7,48 +7,18 @@
  * Drop this file at:
  *   src/app/api/bayse/events/[eventId]/markets/[marketId]/quote/route.ts
  */
-
-import { NextRequest, NextResponse } from "next/server";
-import crypto from "crypto";
-
-// ─── Env vars (set in .env.local) ────────────────────────────────────────────
-const BAYSE_API_KEY = process.env.BAYSE_API_KEY!;
-const BAYSE_API_SECRET = process.env.BAYSE_API_SECRET!;
-const BAYSE_BASE_URL = process.env.BAYSE_BASE_URL ?? "https://api.bayse.markets";
-
-// ─── HMAC-SHA256 signer (same as your existing BayseClient) ──────────────────
-
-function signRequest(
-  method: string,
-  path: string,
-  body: string,
-  timestamp: string
-): string {
-  // Signing string format used by Bayse:
-  // "{TIMESTAMP}\n{METHOD}\n{PATH}\n{BODY_SHA256}"
-  const bodyHash = crypto
-    .createHash("sha256")
-    .update(body)
-    .digest("hex");
-
-  const signingString = `${timestamp}\n${method.toUpperCase()}\n${path}\n${bodyHash}`;
-
-  return crypto
-    .createHmac("sha256", BAYSE_API_SECRET)
-    .update(signingString)
-    .digest("hex");
-}
-
-// ─── POST handler ─────────────────────────────────────────────────────────────
+import { NextRequest } from "next/server";
+import { NextResponse } from "next/server";
+import { bayseWrite } from "@/lib/bayse-server";
 
 export async function POST(
   req: NextRequest,
-  { params }: { params: { eventId: string; marketId: string } }
+  { params }: { params: Promise<{ eventId: string; marketId: string }> },
 ) {
-  const { eventId, marketId } = params;
+  const { eventId, marketId } = await params;
 
   // Parse the body from the client (QuoteDrawer)
-  let body: Record<string, unknown>;
+  let body: any;
   try {
     body = await req.json();
   } catch {
@@ -60,54 +30,37 @@ export async function POST(
   if (!side || !outcome || !amount) {
     return NextResponse.json(
       { message: "Missing required fields: side, outcome, amount" },
-      { status: 400 }
+      { status: 400 },
     );
   }
 
-  // Build the Bayse API path
-  const baysePathBase = `/v1/pm/events/${eventId}/markets/${marketId}/quote`;
-
-  // Append currency as query param (Bayse reads it from query, not body)
-  const baysePath = `${baysePathBase}?currency=${currency}`;
+  // Build the Bayse API path (Bayse reads currency from query param)
+  const baysePath = `/v1/pm/events/${eventId}/markets/${marketId}/quote?currency=${currency}`;
 
   // Serialize body (only send fields Bayse expects)
-  const requestBody: Record<string, unknown> = { side, outcome, amount };
-  if (body.price !== undefined) requestBody.price = body.price; // CLOB limit price
-
-  const bodyString = JSON.stringify(requestBody);
-  const timestamp = Date.now().toString();
-  const signature = signRequest("POST", baysePath, bodyString, timestamp);
+  const requestBody: Record<string, any> = {
+    side,
+    outcomeId: outcome, // was: outcome
+    amount,
+  };
+  if (body.price !== undefined) requestBody.price = body.price;
 
   try {
-    const response = await fetch(`${BAYSE_BASE_URL}${baysePath}`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "X-Api-Key": BAYSE_API_KEY,
-        "X-Timestamp": timestamp,
-        "X-Signature": signature,
-      },
-      body: bodyString,
-    });
+    const data = await bayseWrite("POST", baysePath, requestBody);
+    console.error("[/api/bayse/quote] Response:", JSON.stringify(data));
+    console.error("[BAYSE QUOTE RAW]", JSON.stringify(data, null, 2));
 
-    const data = await response.json();
-
-    if (!response.ok) {
-      // Bubble up Bayse error messages
-      return NextResponse.json(
-        { message: data?.message ?? "Bayse API error" },
-        { status: response.status }
-      );
+    // If Bayse returns an error in the JSON (e.g., message field)
+    if (data?.message && !data?.price) {
+      return NextResponse.json({ message: data.message }, { status: 400 });
     }
 
-    // Return the quote response directly to QuoteDrawer
-    // Shape: { price, currentMarketPrice, quantity, costOfShares, fee, amount, completeFill }
     return NextResponse.json(data);
   } catch (err) {
     console.error("[/api/bayse/quote] Upstream error:", err);
     return NextResponse.json(
       { message: "Failed to reach Bayse API" },
-      { status: 502 }
+      { status: 502 },
     );
   }
 }

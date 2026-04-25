@@ -31,6 +31,9 @@ interface QuoteDrawerProps {
   currencyProp?: "USD" | "NGN";
   /** The AI's assessed probability for ROI projections */
   aiProbability?: number;
+  /** Real Bayse IDs for outcomes */
+  yesOutcomeId?: string;
+  noOutcomeId?: string;
 }
 
 interface QuoteResponse {
@@ -84,6 +87,8 @@ export default function QuoteDrawer({
   onClose,
   currencyProp = "USD",
   aiProbability,
+  yesOutcomeId,
+  noOutcomeId,
 }: QuoteDrawerProps) {
   // ── Form state
   const [side, setSide] = useState<"BUY" | "SELL">("BUY");
@@ -290,15 +295,22 @@ export default function QuoteDrawer({
         <div className="qd-field qd-field--half">
           <label className="qd-label">Outcome</label>
           <div className="qd-toggle-group">
-            {(["YES", "NO"] as const).map((o) => (
+            {[
+              { label: "YES", id: yesOutcomeId ?? "YES" },
+              { label: "NO", id: noOutcomeId ?? "NO" },
+            ].map((o) => (
               <button
-                key={o}
-                className={`qd-toggle ${outcome === o ? "qd-toggle--active" : ""}`}
-                onClick={() => setOutcome(o)}
+                key={o.label}
+                className={`qd-toggle ${outcome === o.id ? "qd-toggle--active" : ""}`}
+                onClick={() => setOutcome(o.id)}
               >
                 <div className="flex items-center justify-center gap-1.5">
-                  {o === "YES" ? <ArrowUpRight size={10} /> : <ArrowDownRight size={10} />}
-                  {o}
+                  {o.label === "YES" ? (
+                    <ArrowUpRight size={10} />
+                  ) : (
+                    <ArrowDownRight size={10} />
+                  )}
+                  {o.label}
                 </div>
               </button>
             ))}
