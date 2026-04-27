@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useCallback } from "react";
 import Sidebar from "@/components/layout/Sidebar";
+import { useBookmarks } from "@/hooks/useBookmarks";
 import {
   AreaChart,
   Area,
@@ -23,6 +24,8 @@ import {
   XCircle,
   Minus,
   Loader2,
+  Bookmark,
+  Brain
 } from "lucide-react";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -219,6 +222,36 @@ export default function QuantLabPage() {
   const [loading, setLoading] = useState(false);
   const [fetchingMarkets, setFetchingMarkets] = useState(true);
   const [error, setError] = useState("");
+  const [showBookmarkedOnly, setShowBookmarkedOnly] = useState(false);
+  const [aiPrompt, setAiPrompt] = useState("");
+  const [parsingAi, setParsingAi] = useState(false);
+  const { bookmarks } = useBookmarks();
+
+  const handleAiParse = async () => {
+    if (!aiPrompt) return;
+    setParsingAi(true);
+    setError("");
+    try {
+      const res = await fetch("/api/quant/parse-strategy", {
+        method: "POST",
+        body: JSON.stringify({ prompt: aiPrompt }),
+      });
+      const data = await res.json();
+      if (data.error) throw new Error(data.error);
+      
+      setStrategy({
+        direction: data.direction,
+        entryThreshold: data.entryThreshold,
+        exitThreshold: data.exitThreshold,
+        holdDays: data.holdDays,
+      });
+      setAiPrompt(""); // clear after success
+    } catch (err) {
+      setError("AI failed to parse that strategy. Try being more specific.");
+    } finally {
+      setParsingAi(false);
+    }
+  };
 
   // Fetch markets on mount
   useEffect(() => {
@@ -324,12 +357,52 @@ export default function QuantLabPage() {
                   Strategy Config
                 </h2>
 
+                {/* AI Strategy Builder */}
+                <div className="mb-8 p-4 bg-blue-600/5 border border-blue-500/20 rounded-2xl">
+                  <label className="text-[9px] font-mono text-blue-400 uppercase tracking-widest mb-2 block">
+                    AI Strategy Builder (BETA)
+                  </label>
+                  <div className="relative">
+                    <input
+                      type="text"
+                      placeholder="e.g. 'buy when YES is under 40% and exit above 80%'"
+                      value={aiPrompt}
+                      onChange={(e) => setAiPrompt(e.target.value)}
+                      onKeyDown={(e) => e.key === 'Enter' && handleAiParse()}
+                      className="w-full bg-slate-950 border border-slate-800 focus:border-blue-500/50 text-white text-[11px] font-mono px-4 py-3 rounded-xl outline-none transition-colors pr-10"
+                    />
+                    <button 
+                      onClick={handleAiParse}
+                      disabled={parsingAi || !aiPrompt}
+                      className="absolute right-2 top-1.5 p-1.5 text-blue-500 hover:text-white disabled:opacity-30 transition-colors"
+                    >
+                      {parsingAi ? <Loader2 size={16} className="animate-spin" /> : <Brain size={16} className="animate-pulse" />}
+                    </button>
+                  </div>
+                  <p className="text-[8px] font-mono text-slate-500 mt-2 italic">
+                    Describe your trade idea in plain English. Gemini will configure the numbers.
+                  </p>
+                </div>
+
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
                   {/* Market */}
                   <div className="sm:col-span-2 flex flex-col gap-2">
-                    <label className="text-[9px] font-mono text-slate-500 uppercase tracking-widest">
-                      Market
-                    </label>
+                    <div className="flex justify-between items-center">
+                      <label className="text-[9px] font-mono text-slate-500 uppercase tracking-widest">
+                        Market
+                      </label>
+                      <button
+                        onClick={() => setShowBookmarkedOnly(prev => !prev)}
+                        className={`flex items-center gap-1.5 text-[8px] font-mono font-bold px-2 py-1 rounded-lg border transition-all ${
+                          showBookmarkedOnly
+                            ? 'bg-blue-600/20 border-blue-500/50 text-blue-400'
+                            : 'bg-slate-900 border-slate-700 text-slate-500 hover:text-slate-300'
+                        }`}
+                      >
+                        <Bookmark size={8} fill={showBookmarkedOnly ? "currentColor" : "none"} />
+                        BOOKMARKS ONLY
+                      </button>
+                    </div>
                     <select
                       value={selectedMarket}
                       onChange={(e) => setSelectedMarket(e.target.value)}
@@ -339,13 +412,15 @@ export default function QuantLabPage() {
                       {fetchingMarkets ? (
                         <option>Loading markets...</option>
                       ) : (
-                        markets.map((m) => (
-                          <option key={m.id} value={m.id}>
-                            {m.question.length > 80
-                              ? m.question.slice(0, 80) + "…"
-                              : m.question}
-                          </option>
-                        ))
+                        markets
+                          .filter(m => !showBookmarkedOnly || bookmarks.includes(m.id))
+                          .map((m) => (
+                            <option key={m.id} value={m.id}>
+                              {m.question.length > 80
+                                ? m.question.slice(0, 80) + "…"
+                                : m.question}
+                            </option>
+                          ))
                       )}
                     </select>
                     

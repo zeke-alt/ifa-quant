@@ -61,6 +61,7 @@ const SENTIMENT_CONFIG: Record<string, { color: string; icon: any }> = {
  * High divergence often indicates a potential trading opportunity (mispricing).
  */
 function Leaderboard({ signals, currency = 'USD' }: { signals: MacroSignal[], currency?: 'USD' | 'NGN' }) {
+  const { toggleBookmark, isBookmarked } = useBookmarks();
   const ranked = [...signals]
     .map(s => ({
       ...s,
@@ -77,7 +78,8 @@ function Leaderboard({ signals, currency = 'USD' }: { signals: MacroSignal[], cu
         <div className="col-span-5">Market</div>
         <div className="col-span-2 text-center">AI Prob</div>
         <div className="col-span-2 text-center">Divergence</div>
-        <div className="col-span-2 text-center">Score</div>
+        <div className="col-span-1 text-center">Score</div>
+        <div className="col-span-1 text-center"></div>
       </div>
 
       {ranked.map((s, i) => {
@@ -91,6 +93,7 @@ function Leaderboard({ signals, currency = 'USD' }: { signals: MacroSignal[], cu
           : s.score >= 58 ? 'BUY'
             : s.score >= 42 ? 'HOLD'
               : 'AVOID';
+        const bookmarked = isBookmarked(s.marketId);
 
         return (
           <div
@@ -145,7 +148,7 @@ function Leaderboard({ signals, currency = 'USD' }: { signals: MacroSignal[], cu
             </div>
 
             {/* Score */}
-            <div className="col-span-2 flex items-center justify-center">
+            <div className="col-span-1 flex items-center justify-center">
               <span className={`text-[9px] font-mono font-bold px-2 py-0.5 rounded-lg ${scoreColor} ${s.score >= 75 ? 'bg-green-500/10' :
                   s.score >= 58 ? 'bg-blue-500/10' :
                     s.score >= 42 ? 'bg-slate-500/10' :
@@ -153,6 +156,16 @@ function Leaderboard({ signals, currency = 'USD' }: { signals: MacroSignal[], cu
                 }`}>
                 {action}
               </span>
+            </div>
+
+            {/* Bookmark */}
+            <div className="col-span-1 flex items-center justify-center">
+              <button
+                onClick={() => toggleBookmark(s.marketId)}
+                className={`transition-colors ${bookmarked ? 'text-blue-400' : 'text-slate-700 hover:text-slate-400'}`}
+              >
+                <Bookmark size={14} fill={bookmarked ? "currentColor" : "none"} />
+              </button>
             </div>
           </div>
         );
@@ -561,6 +574,19 @@ export default function Dashboard() {
                           {c}
                         </button>
                       ))}
+
+                      {/* Bookmark Toggle */}
+                      <button
+                        onClick={() => setShowBookmarksOnly(prev => !prev)}
+                        className={`flex items-center gap-2 text-[9px] font-mono font-bold px-3 py-1.5 rounded-lg border transition-all ${
+                          showBookmarksOnly
+                            ? 'bg-blue-600/20 border-blue-500/50 text-blue-400 shadow-[0_0_10px_rgba(37,99,235,0.2)]'
+                            : 'bg-slate-900 border-slate-700 text-slate-500 hover:border-slate-500'
+                        }`}
+                      >
+                        <Bookmark size={10} fill={showBookmarksOnly ? "currentColor" : "none"} />
+                        BOOKMARKS ({bookmarks.length})
+                      </button>
                     </div>
 
                     {/* Legend Bar */}

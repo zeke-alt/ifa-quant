@@ -206,13 +206,13 @@ Find the alpha. Focus on Nigerian/African macro context.`;
 
     // Step 5: Invoke Vertex AI
     const result = await ai.models.generateContent({
-  model: "gemini-2.5-flash-lite", 
-  contents: prompt,
-  config: { 
-    responseMimeType: "application/json",
-    maxOutputTokens: 4096, 
-  },
-});
+      model: "gemini-2.5-flash-lite",
+      contents: prompt,
+      config: {
+        responseMimeType: "application/json",
+        maxOutputTokens: 4096,
+      },
+    });
 
     const responseText = result.text;
     if (!responseText) throw new Error("Vertex AI returned no text");
