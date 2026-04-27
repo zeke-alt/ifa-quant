@@ -11,10 +11,12 @@ import {
   Target,
   X,
   Zap,
+  Bookmark,
 } from 'lucide-react';
 import { MacroSignal } from '@/types/macro';
 import DivergenceLine from '@/components/charts/DivergenceLine';
 import QuoteDrawer from '@/components/ui/QuoteDrawer';
+import { useBookmarks } from '@/hooks/useBookmarks';
 
 // ── Sentiment config ────────────────────────────────────────────────────────
 const SENTIMENT_CONFIG = {
@@ -231,12 +233,14 @@ export default function MarketCard({ signal, currency = 'USD' }: { signal: Macro
   const [expanded, setExpanded] = useState(false);
   // showQuote lives here, inside the component — not at module scope
   const [showQuote, setShowQuote] = useState(false);
+  const { toggleBookmark, isBookmarked } = useBookmarks();
 
   const probability = Number(signal.probability);
   const prob = (probability * 100).toFixed(0);
   const sentiment = signal.sentiment ?? 'NEUTRAL';
   const config = SENTIMENT_CONFIG[sentiment] ?? SENTIMENT_CONFIG.NEUTRAL;
   const SentimentIcon = config.icon;
+  const bookmarked = isBookmarked(signal.marketId);
 
   // Momentum derived from probability deviation from 0.5, weighted by signal quality
   const signalStrength = (signal.source_reliability + signal.historical_accuracy) / 2;
@@ -282,9 +286,22 @@ export default function MarketCard({ signal, currency = 'USD' }: { signal: Macro
 
           {/* ── Header ── */}
           <div className="flex justify-between items-start mb-6">
-            <div className={`flex items-center gap-1.5 px-2 py-1 rounded-lg ${config.bg}`}>
-              <SentimentIcon size={12} className={config.color} />
-              <span className={`text-[9px] font-mono font-bold ${config.color}`}>{config.label}</span>
+            <div className="flex items-center gap-2">
+              <div className={`flex items-center gap-1.5 px-2 py-1 rounded-lg ${config.bg}`}>
+                <SentimentIcon size={12} className={config.color} />
+                <span className={`text-[9px] font-mono font-bold ${config.color}`}>{config.label}</span>
+              </div>
+              <button
+                onClick={() => toggleBookmark(signal.marketId)}
+                className={`p-1.5 rounded-lg border transition-all ${
+                  bookmarked 
+                    ? 'bg-blue-600/20 border-blue-500/50 text-blue-400' 
+                    : 'bg-slate-800 border-slate-700 text-slate-500 hover:text-slate-300'
+                }`}
+                title={bookmarked ? "Remove bookmark" : "Add bookmark"}
+              >
+                <Bookmark size={12} fill={bookmarked ? "currentColor" : "none"} />
+              </button>
             </div>
             <div className="text-right">
               <div className="text-[10px] text-slate-500 font-mono uppercase tracking-tighter">AI Prediction</div>

@@ -8,7 +8,8 @@ import OjaScore from '@/components/charts/OjaScore';
 import SystemLog from '@/components/layout/SystemLog';
 import { analyzeMarkets } from '@/lib/api-client';
 import { MacroSignal } from '@/types/macro';
-import { LayoutGrid, Trophy, TrendingUp, TrendingDown, AlertTriangle, Minus, Brain, Search, X, Loader2 } from 'lucide-react';
+import { LayoutGrid, Trophy, TrendingUp, TrendingDown, AlertTriangle, Minus, Brain, Search, X, Loader2, Bookmark } from 'lucide-react';
+import { useBookmarks } from '@/hooks/useBookmarks';
 
 /**
  * Main Macro Terminal Dashboard
@@ -246,6 +247,7 @@ export default function Dashboard() {
   const [signalsData, setSignalsData] = useState<SignalsData | null>(null);
   const [sentimentFilter, setSentimentFilter] = useState<string>('ALL');
   const [categoryFilter, setCategoryFilter] = useState<string>('ALL');
+  const [showBookmarksOnly, setShowBookmarksOnly] = useState(false);
   const [activeTab, setActiveTab] = useState<'scanner' | 'leaderboard' | 'intelligence'>('scanner');
   const [currency, setCurrency] = useState<'NGN' | 'USD'>('NGN');
   const [loading, setLoading] = useState(true);
@@ -255,6 +257,7 @@ export default function Dashboard() {
   const [isSearching, setIsSearching] = useState(false);
   const [analyzedSearchResults, setAnalyzedSearchResults] = useState<Record<string, MacroSignal>>({});
   const [analyzingEventId, setAnalyzingEventId] = useState<string | null>(null);
+  const { bookmarks } = useBookmarks();
 
   // Load initial currency from localStorage on mount
   useEffect(() => {
@@ -356,7 +359,8 @@ export default function Dashboard() {
   const filteredSignals = signalsData?.signals.filter((s) => {
     const sentimentMatch = sentimentFilter === 'ALL' || s.sentiment === sentimentFilter;
     const categoryMatch = categoryFilter === 'ALL' || s.category === categoryFilter;
-    return sentimentMatch && categoryMatch;
+    const bookmarkMatch = !showBookmarksOnly || bookmarks.includes(s.marketId);
+    return sentimentMatch && categoryMatch && bookmarkMatch;
   }) ?? [];
 
   const categories = ['ALL', ...Array.from(new Set(signalsData?.signals.map(s => s.category).filter((c): c is string => Boolean(c)) ?? []))];

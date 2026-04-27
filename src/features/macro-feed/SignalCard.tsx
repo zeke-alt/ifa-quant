@@ -1,12 +1,14 @@
 "use client";
 import React from 'react';
-import { TrendingUp, TrendingDown, Info, ShieldAlert } from 'lucide-react';
+import { TrendingUp, TrendingDown, Info, ShieldAlert, Bookmark } from 'lucide-react';
 import { MacroSignal } from '@/types/macro';
+import { useBookmarks } from '@/hooks/useBookmarks';
 
 export default function SignalCard({ signal }: { signal: MacroSignal }) {
-  // Determine sentiment based on the 0.5 threshold from your probability data
+  const { toggleBookmark, isBookmarked } = useBookmarks();
   const isPositive = signal.probability >= 0.5;
   const confidencePercent = (signal.probability * 100).toFixed(0);
+  const bookmarked = isBookmarked(signal.marketId);
 
   return (
     <div className="group relative overflow-hidden bg-slate-900/40 border border-slate-800 p-5 rounded-2xl hover:bg-slate-900/60 hover:border-blue-500/30 transition-all duration-300">
@@ -28,9 +30,22 @@ export default function SignalCard({ signal }: { signal: MacroSignal }) {
             {isPositive ? 'Bullish Signal' : 'Risk Alert'}
           </span>
         </div>
-        <span className="text-[10px] font-mono text-slate-600 font-bold uppercase">
-          Conf: {confidencePercent}%
-        </span>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              toggleBookmark(signal.marketId);
+            }}
+            className={`p-1 rounded-md transition-all ${
+              bookmarked ? 'text-blue-400' : 'text-slate-600 hover:text-slate-400'
+            }`}
+          >
+            <Bookmark size={14} fill={bookmarked ? "currentColor" : "none"} />
+          </button>
+          <span className="text-[10px] font-mono text-slate-600 font-bold uppercase">
+            Conf: {confidencePercent}%
+          </span>
+        </div>
       </div>
 
       <div className="mb-3">
@@ -66,4 +81,4 @@ export default function SignalCard({ signal }: { signal: MacroSignal }) {
       </div>
     </div>
   );
-}
+}
