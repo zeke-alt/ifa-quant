@@ -3,6 +3,7 @@ import React from 'react';
 import { TrendingUp, TrendingDown, Info, ShieldAlert, Bookmark } from 'lucide-react';
 import { MacroSignal } from '@/types/macro';
 import { useBookmarks } from '@/hooks/useBookmarks';
+import { cn } from '@/lib/utils';
 
 export default function SignalCard({ signal }: { signal: MacroSignal }) {
   const { toggleBookmark, isBookmarked } = useBookmarks();
@@ -11,70 +12,73 @@ export default function SignalCard({ signal }: { signal: MacroSignal }) {
   const bookmarked = isBookmarked(signal.marketId);
 
   return (
-    <div className="group relative overflow-hidden bg-slate-900/40 border border-slate-800 p-5 rounded-2xl hover:bg-slate-900/60 hover:border-blue-500/30 transition-all duration-300">
+    <div className="group relative overflow-hidden bg-card/40 backdrop-blur-sm border border-border p-6 rounded-2xl hover:bg-card/60 hover:border-primary/30 hover:shadow-xl hover:shadow-primary/5 transition-all duration-300">
       {/* Decorative Gradient Glow */}
-      <div className={`absolute -right-4 -top-4 w-16 h-16 blur-2xl opacity-10 rounded-full transition-opacity group-hover:opacity-20 ${isPositive ? 'bg-green-500' : 'bg-red-500'}`} />
+      <div className={cn(
+        "absolute -right-4 -top-4 w-20 h-20 blur-3xl opacity-10 rounded-full transition-opacity group-hover:opacity-20",
+        isPositive ? 'bg-green-500' : 'bg-red-500'
+      )} />
 
-      <div className="flex justify-between items-start mb-3">
+      <div className="flex justify-between items-start mb-4">
         <div className="flex items-center gap-2">
           {isPositive ? (
-            <div className="bg-green-500/10 p-1.5 rounded-lg">
-              <TrendingUp size={14} className="text-green-500" />
+            <div className="bg-green-500/10 p-2 rounded-lg">
+              <TrendingUp size={16} className="text-green-500" />
             </div>
           ) : (
-            <div className="bg-red-500/10 p-1.5 rounded-lg">
-              <ShieldAlert size={14} className="text-red-500" />
+            <div className="bg-red-500/10 p-2 rounded-lg">
+              <ShieldAlert size={16} className="text-red-500" />
             </div>
           )}
-          <span className={`text-[10px] font-black tracking-widest uppercase ${isPositive ? 'text-green-500' : 'text-red-400'}`}>
-            {isPositive ? 'Bullish Signal' : 'Risk Alert'}
+          <span className={cn("text-[10px] font-black tracking-widest uppercase", isPositive ? 'text-green-500' : 'text-red-500')}>
+            {isPositive ? 'BULLISH_SIGNAL' : 'RISK_ALERT'}
           </span>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-3">
           <button
             onClick={(e) => {
               e.stopPropagation();
               toggleBookmark(signal.marketId);
             }}
-            className={`p-1 rounded-md transition-all ${
-              bookmarked ? 'text-blue-400' : 'text-slate-600 hover:text-slate-400'
-            }`}
+            className={cn("p-1 rounded-md transition-all", 
+              bookmarked ? 'text-blue-500 scale-110' : 'text-muted-foreground hover:text-foreground'
+            )}
           >
-            <Bookmark size={14} fill={bookmarked ? "currentColor" : "none"} />
+            <Bookmark size={16} fill={bookmarked ? "currentColor" : "none"} />
           </button>
-          <span className="text-[10px] font-mono text-slate-600 font-bold uppercase">
-            Conf: {confidencePercent}%
+          <span className="text-[10px] font-black font-mono text-muted-foreground uppercase opacity-70">
+            CONF: {confidencePercent}%
           </span>
         </div>
       </div>
 
-      <div className="mb-3">
-        <div className="text-[8px] font-mono text-slate-500 uppercase tracking-widest mb-1">
+      <div className="mb-4">
+        <div className="text-[9px] font-black text-muted-foreground uppercase tracking-widest mb-1.5 opacity-60">
           {signal.eventTitle}
         </div>
-        <h5 className="text-sm font-bold text-slate-100 leading-snug group-hover:text-blue-400 transition-colors">
+        <h5 className="text-base font-black text-foreground leading-tight group-hover:text-primary transition-colors tracking-tight">
           {signal.headline}
         </h5>
-        <p className="text-[9px] text-slate-500 italic mt-0.5">
+        <p className="text-[10px] text-muted-foreground italic mt-1 font-medium opacity-80">
           {signal.marketTitle}
         </p>
       </div>
 
       {/* Logic Preview - Line clamped for neatness */}
-      <p className="text-[11px] text-slate-500 line-clamp-2 italic leading-relaxed mb-4">
+      <p className="text-[11px] text-muted-foreground line-clamp-2 italic leading-relaxed mb-6 font-medium">
         {signal.logic}
       </p>
 
-      <div className="flex items-center justify-between pt-3 border-t border-slate-800/50">
-        <div className="flex items-center gap-1.5 cursor-help">
-          <Info size={12} className="text-slate-600" />
-          <span className="text-[10px] text-slate-600 uppercase font-mono font-bold tracking-tighter">
-            View Analysis
+      <div className="flex items-center justify-between pt-4 border-t border-border/50">
+        <div className="flex items-center gap-2 cursor-help group/info">
+          <Info size={14} className="text-muted-foreground group-hover/info:text-primary transition-colors" />
+          <span className="text-[10px] text-muted-foreground group-hover/info:text-primary uppercase font-black tracking-widest transition-colors">
+            INSIGHTS
           </span>
         </div>
-        <div className="h-1 w-12 bg-slate-800 rounded-full overflow-hidden">
+        <div className="h-1 w-16 bg-muted rounded-full overflow-hidden">
             <div 
-              className={`h-full transition-all duration-1000 ${isPositive ? 'bg-green-500' : 'bg-red-500'}`} 
+              className={cn("h-full transition-all duration-1000", isPositive ? 'bg-green-500' : 'bg-red-500')} 
               style={{ width: `${confidencePercent}%` }} 
             />
         </div>

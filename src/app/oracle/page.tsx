@@ -3,7 +3,9 @@ import React, { useState, useEffect, useRef, useCallback } from "react";
 import Sidebar from "@/components/layout/Sidebar";
 import { analyzeMarkets } from "@/lib/api-client";
 import { MacroSignal } from "@/types/macro";
-import { Send, Loader2, Zap, TrendingUp, AlertTriangle, BarChart2 } from "lucide-react";
+import { Send, Loader2, Zap, TrendingUp, AlertTriangle, BarChart2, Info } from "lucide-react";
+import { useLayout } from "@/context/LayoutContext";
+import { cn } from "@/lib/utils";
 
 interface Message {
   role: "user" | "assistant";
@@ -40,6 +42,7 @@ export default function OraclePage() {
   const [tradeHistory, setTradeHistory] = useState<TradeRecord[]>([]);
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const { isSidebarCollapsed } = useLayout();
 
   // Load signals
   useEffect(() => {
@@ -115,7 +118,7 @@ export default function OraclePage() {
         // Handle list items
         if (line.startsWith("- ")) {
           return (
-            <li key={i} className="ml-4 list-disc text-slate-300 mb-1">
+            <li key={i} className="ml-4 list-disc text-muted-foreground mb-1">
               {renderLineParts(line.slice(2))}
             </li>
           );
@@ -124,14 +127,14 @@ export default function OraclePage() {
         // Handle full-line bold headers
         if (line.startsWith("**") && line.endsWith("**")) {
           return (
-            <p key={i} className="font-bold text-white mb-2 mt-4 first:mt-0">
+            <p key={i} className="font-black text-foreground mb-2 mt-4 first:mt-0">
               {renderLineParts(line.slice(2, -2))}
             </p>
           );
         }
 
         return (
-          <p key={i} className="text-slate-300 mb-2">
+          <p key={i} className="text-muted-foreground mb-2">
             {renderLineParts(line)}
           </p>
         );
@@ -149,7 +152,7 @@ export default function OraclePage() {
       // Handle Bold
       if (part.startsWith("**") && part.endsWith("**")) {
         return (
-          <strong key={j} className="text-white font-bold">
+          <strong key={j} className="text-foreground font-black">
             {part.slice(2, -2)}
           </strong>
         );
@@ -165,7 +168,7 @@ export default function OraclePage() {
               href={match[2]} 
               target="_blank" 
               rel="noopener noreferrer" 
-              className="text-blue-400 hover:text-blue-300 hover:underline font-bold transition-colors"
+              className="text-primary hover:underline font-black transition-colors"
             >
               {match[1]}
             </a>
@@ -181,7 +184,7 @@ export default function OraclePage() {
             href={part} 
             target="_blank" 
             rel="noopener noreferrer" 
-            className="text-blue-400 hover:text-blue-300 hover:underline break-all transition-colors"
+            className="text-primary hover:underline break-all transition-colors"
           >
             {part}
           </a>
@@ -194,22 +197,25 @@ export default function OraclePage() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-200">
+    <div className="min-h-screen bg-background text-foreground transition-all duration-300">
       <Sidebar />
 
-      <main className="lg:ml-64 flex flex-col h-screen">
+      <main className={cn(
+        "flex flex-col h-screen transition-all duration-500 ease-in-out",
+        isSidebarCollapsed ? "lg:ml-20" : "lg:ml-64"
+      )}>
         {/* Header */}
-        <div className="border-b border-slate-800 px-6 py-4 flex items-center justify-between bg-slate-950/80 backdrop-blur-xl sticky top-0 z-10">
+        <div className="border-b border-border px-6 py-4 flex items-center justify-between bg-background/80 backdrop-blur-xl sticky top-16 lg:top-0 z-10">
           <div className="flex items-center gap-3">
             <div className="relative">
-              <div className="w-8 h-8 rounded-full bg-gradient-to-br from-orange-500 to-amber-600 flex items-center justify-center text-sm font-black text-white">
+              <div className="w-10 h-10 rounded-2xl bg-linear-to-br from-orange-500 to-amber-600 flex items-center justify-center text-lg font-black text-white shadow-lg shadow-orange-500/20">
                 Ọ
               </div>
-              <div className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 bg-green-500 rounded-full border-2 border-slate-950" />
+              <div className="absolute -bottom-0.5 -right-0.5 w-3 h-3 bg-green-500 rounded-full border-2 border-background" />
             </div>
             <div>
-              <h1 className="text-sm font-black text-white tracking-tight uppercase">Ifa Oracle</h1>
-              <p className="text-[9px] font-mono text-slate-500 tracking-widest">
+              <h1 className="text-sm font-black text-foreground tracking-tight uppercase">Ifá Oracle</h1>
+              <p className="text-[10px] font-mono text-muted-foreground tracking-widest font-bold">
                 {signalsLoading ? "LOADING_SIGNALS..." : `${signals.length}_SIGNALS_LOADED // LIVE`}
               </p>
             </div>
@@ -218,11 +224,11 @@ export default function OraclePage() {
           {/* Signal summary pills */}
           <div className="hidden md:flex gap-2">
             {[
-              { label: "BULLISH", count: signals.filter(s => s.sentiment === "BULLISH").length, color: "text-green-400 bg-green-500/10 border-green-500/20" },
-              { label: "BEARISH", count: signals.filter(s => s.sentiment === "BEARISH").length, color: "text-red-400 bg-red-500/10 border-red-500/20" },
-              { label: "RISK", count: signals.filter(s => s.sentiment === "RISK_ALERT").length, color: "text-orange-400 bg-orange-500/10 border-orange-500/20" },
+              { label: "BULLISH", count: signals.filter(s => s.sentiment === "BULLISH").length, color: "text-green-500 bg-green-500/10 border-green-500/20" },
+              { label: "BEARISH", count: signals.filter(s => s.sentiment === "BEARISH").length, color: "text-red-500 bg-red-500/10 border-red-500/20" },
+              { label: "RISK", count: signals.filter(s => s.sentiment === "RISK_ALERT").length, color: "text-orange-500 bg-orange-500/10 border-orange-500/20" },
             ].map(({ label, count, color }) => (
-              <div key={label} className={`text-[9px] font-mono font-bold px-2 py-1 rounded-lg border ${color}`}>
+              <div key={label} className={`text-[10px] font-black px-3 py-1.5 rounded-xl border ${color}`}>
                 {label}: {count}
               </div>
             ))}
@@ -230,27 +236,29 @@ export default function OraclePage() {
         </div>
 
         {/* Messages */}
-        <div className="flex-1 overflow-y-auto px-4 md:px-12 py-8 space-y-6">
+        <div className="flex-1 overflow-y-auto px-4 md:px-12 py-12 space-y-8 no-scrollbar">
           {messages.map((msg, i) => (
             <div
               key={i}
-              className={`flex gap-3 ${msg.role === "user" ? "flex-row-reverse" : "flex-row"}`}
+              className={`flex gap-4 ${msg.role === "user" ? "flex-row-reverse" : "flex-row"}`}
             >
               {/* Avatar */}
-              <div className={`flex-shrink-0 w-7 h-7 rounded-full flex items-center justify-center text-[10px] font-black ${
+              <div className={cn(
+                "shrink-0 w-8 h-8 rounded-xl flex items-center justify-center text-xs font-black shadow-sm",
                 msg.role === "assistant"
-                  ? "bg-gradient-to-br from-orange-500 to-amber-600 text-white"
-                  : "bg-slate-700 text-slate-300"
-              }`}>
+                  ? "bg-linear-to-br from-orange-500 to-amber-600 text-white"
+                  : "bg-secondary text-muted-foreground"
+              )}>
                 {msg.role === "assistant" ? "Ọ" : "U"}
               </div>
 
               {/* Bubble */}
-              <div className={`max-w-[75%] rounded-2xl px-4 py-3 text-[13px] leading-relaxed space-y-1 ${
+              <div className={cn(
+                "max-w-[80%] rounded-2xl px-6 py-4 text-sm leading-relaxed shadow-sm",
                 msg.role === "assistant"
-                  ? "bg-slate-900 border border-slate-800 text-slate-300"
-                  : "bg-blue-600 text-white"
-              }`}>
+                  ? "bg-card border border-border text-foreground/90 font-medium"
+                  : "bg-primary text-primary-foreground font-bold shadow-lg shadow-primary/10"
+              )}>
                 {msg.role === "assistant" ? renderContent(msg.content) : msg.content}
               </div>
             </div>
@@ -258,21 +266,21 @@ export default function OraclePage() {
 
           {/* Loading indicator */}
           {loading && (
-            <div className="flex gap-3">
-              <div className="w-7 h-7 rounded-full bg-gradient-to-br from-orange-500 to-amber-600 flex items-center justify-center text-[10px] font-black text-white flex-shrink-0">
+            <div className="flex gap-4">
+              <div className="w-8 h-8 rounded-xl bg-linear-to-br from-orange-500 to-amber-600 flex items-center justify-center text-xs font-black text-white shrink-0">
                 Ọ
               </div>
-              <div className="bg-slate-900 border border-slate-800 rounded-2xl px-4 py-3 flex items-center gap-2">
-                <div className="flex gap-1">
+              <div className="bg-card border border-border rounded-2xl px-6 py-4 flex items-center gap-3 shadow-sm">
+                <div className="flex gap-1.5">
                   {[0, 1, 2].map((i) => (
                     <div
                       key={i}
-                      className="w-1.5 h-1.5 bg-orange-400 rounded-full animate-bounce"
+                      className="w-1.5 h-1.5 bg-orange-500 rounded-full animate-bounce"
                       style={{ animationDelay: `${i * 0.15}s` }}
                     />
                   ))}
                 </div>
-                <span className="text-[10px] font-mono text-slate-500">CONSULTING_IFA...</span>
+                <span className="text-[10px] font-black text-muted-foreground uppercase tracking-widest">CONSULTING_IFA...</span>
               </div>
             </div>
           )}
@@ -282,13 +290,13 @@ export default function OraclePage() {
 
         {/* Suggested prompts */}
         {messages.length === 1 && (
-          <div className="px-4 md:px-12 pb-4">
+          <div className="px-4 md:px-12 pb-6">
             <div className="flex flex-wrap gap-2">
               {SUGGESTED_PROMPTS.map((prompt) => (
                 <button
                   key={prompt}
                   onClick={() => sendMessage(prompt)}
-                  className="text-[10px] font-mono text-slate-400 bg-slate-900 border border-slate-700 hover:border-orange-500/50 hover:text-orange-400 px-3 py-1.5 rounded-xl transition-colors"
+                  className="text-[10px] font-black text-muted-foreground bg-secondary hover:bg-muted border border-border hover:border-primary/30 hover:text-primary px-4 py-2 rounded-2xl transition-all shadow-sm"
                 >
                   {prompt}
                 </button>
@@ -298,9 +306,9 @@ export default function OraclePage() {
         )}
 
         {/* Input */}
-        <div className="border-t border-slate-800 px-4 md:px-12 py-4 bg-slate-950/80 backdrop-blur-xl">
-          <div className="flex gap-3 items-end max-w-4xl mx-auto">
-            <div className="flex-1 bg-slate-900 border border-slate-700 focus-within:border-orange-500/50 rounded-2xl px-4 py-3 transition-colors">
+        <div className="border-t border-border px-4 md:px-12 py-6 bg-background/80 backdrop-blur-xl">
+          <div className="flex gap-4 items-end max-w-4xl mx-auto">
+            <div className="flex-1 bg-card border border-border focus-within:border-primary/50 focus-within:ring-4 focus-within:ring-primary/5 rounded-2xl px-5 py-4 transition-all shadow-sm">
               <textarea
                 ref={inputRef}
                 value={input}
@@ -308,19 +316,19 @@ export default function OraclePage() {
                 onKeyDown={handleKeyDown}
                 placeholder="Ask Ifa anything about the markets..."
                 rows={1}
-                className="w-full bg-transparent text-sm text-slate-200 placeholder-slate-600 resize-none outline-none font-mono"
+                className="w-full bg-transparent text-sm text-foreground placeholder:text-muted-foreground/50 resize-none outline-none font-medium no-scrollbar"
                 style={{ maxHeight: "120px" }}
               />
             </div>
             <button
               onClick={() => sendMessage(input)}
               disabled={loading || !input.trim()}
-              className="w-10 h-10 rounded-xl bg-orange-500 hover:bg-orange-400 disabled:bg-slate-700 disabled:cursor-not-allowed flex items-center justify-center transition-colors flex-shrink-0"
+              className="w-12 h-12 rounded-2xl bg-primary hover:bg-primary/90 disabled:bg-muted disabled:text-muted-foreground text-primary-foreground flex items-center justify-center transition-all shadow-lg shadow-primary/20 shrink-0"
             >
-              {loading ? <Loader2 size={16} className="animate-spin text-white" /> : <Send size={16} className="text-white" />}
+              {loading ? <Loader2 size={18} className="animate-spin" /> : <Send size={18} />}
             </button>
           </div>
-          <p className="text-center text-[9px] font-mono text-slate-600 mt-2">
+          <p className="text-center text-[9px] font-black text-muted-foreground mt-4 uppercase tracking-[0.3em] opacity-40">
             IFA_ORACLE // POWERED BY GEMINI + LIVE BAYSE DATA // OJA INTELLIGENCE
           </p>
         </div>

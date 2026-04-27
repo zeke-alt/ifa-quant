@@ -34,6 +34,7 @@ async function fetchHistory(eventId: string, timePeriod: string, outcome: string
   }));
 }
 
+// @ts-ignore
 export async function GET(
   req: Request,
   { params }: { params: Promise<{ eventId: string }> }

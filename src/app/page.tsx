@@ -10,6 +10,8 @@ import { analyzeMarkets } from '@/lib/api-client';
 import { MacroSignal } from '@/types/macro';
 import { LayoutGrid, Trophy, TrendingUp, TrendingDown, AlertTriangle, Minus, Brain, Search, X, Loader2, Bookmark } from 'lucide-react';
 import { useBookmarks } from '@/hooks/useBookmarks';
+import { useLayout } from '@/context/LayoutContext';
+import { cn } from '@/lib/utils';
 
 /**
  * Main Macro Terminal Dashboard
@@ -96,73 +98,52 @@ function Leaderboard({ signals, currency = 'USD' }: { signals: MacroSignal[], cu
         const bookmarked = isBookmarked(s.marketId);
 
         return (
-          <div
-            key={s.marketId}
-            className={`grid grid-cols-12 gap-2 px-3 py-3 rounded-xl border transition-colors hover:border-slate-600 ${i === 0 ? 'bg-orange-500/5 border-orange-500/20' :
-                i === 1 ? 'bg-blue-500/5 border-blue-500/10' :
-                  i === 2 ? 'bg-slate-800/30 border-slate-700/50' :
-                    'bg-slate-900/30 border-slate-800/50'
-              }`}
-          >
+          <div key={i} className="grid grid-cols-12 gap-2 items-center p-4 border-b border-border/40 hover:bg-secondary/40 transition-all group">
             {/* Rank */}
-            <div className="col-span-1 flex items-center">
-              <span className={`text-[11px] font-black font-mono ${i === 0 ? 'text-orange-400' : i === 1 ? 'text-blue-400' : i === 2 ? 'text-slate-400' : 'text-slate-600'
-                }`}>
-                {i === 0 ? '①' : i === 1 ? '②' : i === 2 ? '③' : `${i + 1}`}
-              </span>
+            <div className="col-span-1 flex items-center justify-center">
+              <span className="text-[11px] font-black text-muted-foreground/30 group-hover:text-primary/40 transition-colors">#{i + 1}</span>
             </div>
 
-            {/* Market */}
-            <div className="col-span-5 flex flex-col justify-center gap-0.5">
-              <p className="text-[11px] text-white font-bold leading-tight line-clamp-2">
-                {s.marketTitle}
-              </p>
-              <div className="flex items-center gap-1">
-                <Icon size={10} className={cfg.color} />
-                <span className={`text-[9px] font-mono ${cfg.color}`}>{s.sentiment}</span>
-                {s.category && (
-                  <span className="text-[9px] font-mono text-slate-600 ml-1">{s.category}</span>
-                )}
-              </div>
+            {/* Asset */}
+            <div className="col-span-5 min-w-0">
+              <h4 className="text-[11px] font-black text-foreground truncate uppercase tracking-tight">
+                {s.headline.length > 40 ? s.headline.slice(0, 40) + "…" : s.headline}
+              </h4>
             </div>
 
             {/* AI Prob */}
-            <div className="col-span-2 flex items-center justify-center">
-              <span className="text-[12px] font-mono font-bold text-white">
+            <div className="col-span-2 text-center">
+              <span className="text-[11px] font-black text-foreground/80 font-mono">
                 {(s.probability * 100).toFixed(0)}%
               </span>
             </div>
 
             {/* Divergence */}
-            <div className="col-span-2 flex flex-col items-center justify-center gap-1">
-              <span className={`text-[11px] font-mono font-bold ${s.divergence > 20 ? 'text-orange-400' : s.divergence > 10 ? 'text-blue-400' : 'text-slate-500'
-                }`}>
-                {s.divergence.toFixed(1)}%
+            <div className="col-span-2 text-center">
+              <span className="text-[11px] font-black text-primary font-mono">
+                {(Math.abs(Number(s.probability) - Number(s.yesProbability)) * 100).toFixed(1)}%
               </span>
-              <div className="w-full h-0.5 bg-slate-800 rounded-full">
-                <div
-                  className={`h-full rounded-full ${s.divergence > 20 ? 'bg-orange-400' : 'bg-blue-500'}`}
-                  style={{ width: `${Math.min(100, s.divergence * 2)}%` }}
-                />
-              </div>
             </div>
 
             {/* Score */}
             <div className="col-span-1 flex items-center justify-center">
-              <span className={`text-[9px] font-mono font-bold px-2 py-0.5 rounded-lg ${scoreColor} ${s.score >= 75 ? 'bg-green-500/10' :
-                  s.score >= 58 ? 'bg-blue-500/10' :
-                    s.score >= 42 ? 'bg-slate-500/10' :
-                      'bg-red-500/10'
-                }`}>
-                {action}
-              </span>
+              <div className={cn(
+                "w-2 h-2 rounded-full",
+                s.score >= 75 ? 'bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.4)]' :
+                  s.score >= 58 ? 'bg-blue-500 shadow-[0_0_8px_rgba(59,130,246,0.4)]' :
+                    s.score >= 42 ? 'bg-muted-foreground/30' :
+                      'bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.4)]'
+              )} title={action} />
             </div>
 
             {/* Bookmark */}
             <div className="col-span-1 flex items-center justify-center">
               <button
                 onClick={() => toggleBookmark(s.marketId)}
-                className={`transition-colors ${bookmarked ? 'text-blue-400' : 'text-slate-700 hover:text-slate-400'}`}
+                className={cn(
+                  "p-2 rounded-lg transition-all",
+                  bookmarked ? 'text-primary' : 'text-muted-foreground/20 hover:text-foreground'
+                )}
               >
                 <Bookmark size={14} fill={bookmarked ? "currentColor" : "none"} />
               </button>
@@ -172,9 +153,11 @@ function Leaderboard({ signals, currency = 'USD' }: { signals: MacroSignal[], cu
       })}
 
       {ranked.length === 0 && (
-        <p className="text-[10px] font-mono text-slate-600 text-center py-12">
-          NO_SIGNALS_AVAILABLE
-        </p>
+        <div className="py-20 text-center">
+          <p className="text-[10px] font-black text-muted-foreground/40 uppercase tracking-[0.2em]">
+            NO_SIGNALS_AVAILABLE
+          </p>
+        </div>
       )}
     </div>
   );
@@ -190,56 +173,59 @@ function IntelligenceTab({ signalsData }: { signalsData: SignalsData | null }) {
   const globalConfidence = signalsData ? Math.round(signalsData.global_confidence * 100) : 0;
 
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+    <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
       {/* Confidence Gauge */}
-      <div className="bg-slate-900/80 border border-slate-800 p-8 rounded-3xl backdrop-blur-xl">
-        <h2 className="text-xs font-black text-slate-500 uppercase tracking-widest mb-8">AI Synthesis</h2>
+      <div className="bg-card border border-border p-8 rounded-3xl shadow-sm backdrop-blur-sm">
+        <h2 className="text-xs font-black text-muted-foreground uppercase tracking-[0.2em] mb-8 opacity-40">AI Synthesis</h2>
         <ConfidenceGauge value={globalConfidence} />
-        <div className="mt-8 pt-8 border-t  border-slate-800/50 space-y-4">
-          <div className="flex justify-between text-[10px] font-mono">
-            <span className="text-slate-500">ACTIVE_SIGNALS</span>
-            <span className="text-white">{signalsData?.active_signals ?? "—"}</span>
+        <div className="mt-8 pt-8 border-t border-border/50 space-y-6">
+          <div className="flex justify-between text-[10px] font-black uppercase tracking-widest">
+            <span className="text-muted-foreground/60">ACTIVE_SIGNALS</span>
+            <span className="text-foreground">{signalsData?.active_signals ?? "—"}</span>
           </div>
-          <div className="flex justify-between text-[10px] font-mono">
-            <span className="text-slate-500">DATA_POINTS</span>
-            <span className="text-white">{signalsData?.data_points.toLocaleString() ?? "—"}</span>
+          <div className="flex justify-between text-[10px] font-black uppercase tracking-widest">
+            <span className="text-muted-foreground/60">DATA_POINTS</span>
+            <span className="text-foreground">{signalsData?.data_points.toLocaleString() ?? "—"}</span>
           </div>
-          <div className="flex justify-between text-[10px] font-mono">
-            <span className="text-slate-500">GLOBAL_CONFIDENCE</span>
-            <span className="text-white">{globalConfidence}%</span>
+          <div className="flex justify-between text-[10px] font-black uppercase tracking-widest">
+            <span className="text-muted-foreground/60">GLOBAL_CONFIDENCE</span>
+            <span className="text-foreground">{globalConfidence}%</span>
           </div>
+          
           {/* Sentiment breakdown */}
-          <div className="pt-4 border-t border-slate-800/50 space-y-2">
+          <div className="pt-6 border-t border-border/50 space-y-4">
             {['BULLISH', 'BEARISH', 'RISK_ALERT', 'NEUTRAL'].map((s) => {
               const count = signalsData?.signals.filter(sig => sig.sentiment === s).length ?? 0;
               const total = signalsData?.signals.length ?? 1;
               const pct = Math.round((count / total) * 100);
-              const color = s === 'BULLISH' ? 'bg-green-500' : s === 'BEARISH' ? 'bg-red-500' : s === 'RISK_ALERT' ? 'bg-orange-500' : 'bg-slate-500';
-              const textColor = s === 'BULLISH' ? 'text-green-400' : s === 'BEARISH' ? 'text-red-400' : s === 'RISK_ALERT' ? 'text-orange-400' : 'text-slate-400';
+              const color = s === 'BULLISH' ? 'bg-green-500' : s === 'BEARISH' ? 'bg-red-500' : s === 'RISK_ALERT' ? 'bg-orange-500' : 'bg-muted-foreground/30';
+              const textColor = s === 'BULLISH' ? 'text-green-600 dark:text-green-400' : s === 'BEARISH' ? 'text-red-600 dark:text-red-400' : s === 'RISK_ALERT' ? 'text-orange-600 dark:text-orange-400' : 'text-muted-foreground';
               return (
                 <div key={s}>
-                  <div className="flex justify-between text-[9px] font-mono mb-1">
+                  <div className="flex justify-between text-[10px] font-black uppercase tracking-tight mb-2">
                     <span className={textColor}>{s}</span>
-                    <span className="text-slate-500">{count} signals</span>
+                    <span className="text-muted-foreground/40">{count} signals</span>
                   </div>
-                  <div className="h-0.5 bg-slate-800 rounded-full">
+                  <div className="h-1 bg-secondary rounded-full overflow-hidden">
                     <div className={`h-full rounded-full ${color}`} style={{ width: `${pct}%` }} />
                   </div>
                 </div>
               );
             })}
           </div>
-          {/* Oja Score */}
-          <OjaScore signals={signalsData?.signals ?? []} />
+          
+          <div className="pt-8 border-t border-border/50">
+            <OjaScore signals={signalsData?.signals ?? []} />
+          </div>
         </div>
       </div>
       
 
       {/* System Log */}
-      <div className="space-y-6">
+      <div className="space-y-8">
         <SystemLog />
-        <div className="space-y-4">
-          <h2 className="text-xs font-black text-slate-500 uppercase tracking-widest">Recent Logic</h2>
+        <div className="space-y-6">
+          <h2 className="text-xs font-black text-muted-foreground uppercase tracking-[0.2em] ml-2 opacity-40">Recent Logic</h2>
           {signalsData?.signals.map((s, i) => (
             <SignalCard key={i} signal={s} />
           ))}
@@ -271,6 +257,7 @@ export default function Dashboard() {
   const [analyzedSearchResults, setAnalyzedSearchResults] = useState<Record<string, MacroSignal>>({});
   const [analyzingEventId, setAnalyzingEventId] = useState<string | null>(null);
   const { bookmarks } = useBookmarks();
+  const { isSidebarCollapsed } = useLayout();
 
   // Load initial currency from localStorage on mount
   useEffect(() => {
@@ -383,19 +370,22 @@ export default function Dashboard() {
     { id: 'intelligence', label: 'INTELLIGENCE', icon: <Brain size={12} />, activeClass: 'bg-purple-600 text-white' },
   ];
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-200 selection:bg-blue-500/30">
+    <div className="min-h-screen bg-background text-foreground transition-all duration-300 selection:bg-primary/20">
       <Sidebar />
-      <main className="lg:ml-64 p-4 lg:p-12">
-        <div className="max-w-6xl mx-auto">
+      <main className={cn(
+        "p-6 lg:p-12 transition-all duration-500 ease-in-out",
+        isSidebarCollapsed ? "lg:ml-20" : "lg:ml-64"
+      )}>
+        <div className="max-w-7xl mx-auto pt-16 lg:pt-0">
           {/* Top Info Bar */}
-          <div className="flex justify-between items-center mb-12 gap-4">
+          <div className="flex flex-col md:flex-row items-start justify-between mb-12 gap-6">
             <div>
-              <h1 className="text-3xl lg:text-4xl font-black text-white tracking-tighter uppercase italic">Terminal_v1.0</h1>
-              <p className="text-slate-500 text-[10px] font-mono mt-1 tracking-widest uppercase opacity-70">
+              <h1 className="text-3xl lg:text-5xl font-black text-slate-900 dark:text-white tracking-tighter uppercase italic mb-2">Terminal_v1.0</h1>
+              <p className="text-slate-500 text-[10px] font-mono mt-1 tracking-widest uppercase opacity-70 font-bold">
                 Live Macro Sentiment Analysis // Lagos, NG // LAST_SYNC: {lastUpdated || "—"}
               </p>
             </div>
-            <div className="flex gap-2 md:gap-4 items-center">
+            <div className="flex flex-wrap gap-3 items-center">
               {/* Search Bar */}
               <form onSubmit={handleSearch} className="relative hidden sm:flex items-center gap-2">
                 <div className="relative">
@@ -404,9 +394,9 @@ export default function Dashboard() {
                     placeholder="SEARCH_MARKETS..."
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
-                    className="bg-slate-900 border border-slate-800 focus:border-blue-500 px-10 py-2 rounded-xl text-[10px] font-mono text-white outline-none w-48 lg:w-64 transition-all"
+                    className="bg-secondary border border-border focus:border-primary/50 px-10 py-2.5 rounded-xl text-[11px] font-black text-foreground outline-none w-48 lg:w-72 transition-all shadow-sm"
                   />
-                  <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" />
+                  <Search size={14} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-muted-foreground/60" />
                   {searchQuery && (
                     <button type="button" onClick={clearSearch} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-white">
                       <X size={14} />
@@ -425,31 +415,31 @@ export default function Dashboard() {
               <button
                 onClick={() => fetchSignals(true)}
                 disabled={loading}
-                className="bg-slate-900 border border-slate-700 hover:border-blue-500 px-3 md:px-4 py-2 rounded-xl text-[10px] font-mono text-slate-400 hover:text-blue-400 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                className="bg-secondary border border-border hover:border-primary/50 px-4 py-2.5 rounded-xl text-[10px] font-black text-muted-foreground hover:text-primary transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-sm"
               >
                 {loading ? "ANALYZING..." : "↻ REFRESH"}
               </button>
 
               {/* Currency Toggle */}
-              <div className="flex bg-slate-900 border border-slate-800 rounded-xl p-1">
+              <div className="flex bg-secondary border border-border rounded-xl p-1 shadow-sm">
                 {(['USD', 'NGN'] as const).map((c) => (
                   <button
                     key={c}
                     onClick={() => setCurrency(c)}
-                    className={`px-3 py-1 rounded-lg text-[9px] font-mono font-bold transition-all ${
-                      currency === c ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-500 hover:text-slate-300'
+                    className={`px-4 py-1.5 rounded-lg text-[10px] font-black transition-all ${
+                      currency === c ? 'bg-primary text-white shadow-lg' : 'text-muted-foreground/60 hover:text-foreground'
                     }`}
                   >
                     {c}
                   </button>
                 ))}
               </div>
-              <div className="hidden md:block bg-slate-900 border border-slate-800 px-4 py-2 rounded-xl text-[10px] font-mono">
-                <span className="text-slate-500">SYSTEM_STATUS:</span>{" "}
+              <div className="hidden md:block bg-secondary border border-border px-4 py-2.5 rounded-xl text-[10px] font-black shadow-sm">
+                <span className="text-muted-foreground/60 uppercase tracking-widest mr-2">Status:</span>
                 <span className={`transition-colors duration-500 ${
                   systemStatus === "OPTIMAL" ? "text-green-500 animate-pulse" :
-                  systemStatus === "INITIALIZING" || systemStatus === "ANALYZING" ? "text-blue-500 animate-pulse" :
-                  "text-red-500"
+                  systemStatus === "INITIALIZING" || systemStatus === "ANALYZING" ? "text-primary animate-pulse" :
+                  "text-destructive"
                 }`}>{systemStatus}</span>
               </div>
             </div>
@@ -468,17 +458,18 @@ export default function Dashboard() {
               <div className={`col-span-12 ${activeTab === 'intelligence' ? '' : 'lg:col-span-8'}`}>
 
                 {/* Tab Switcher */}
-              <div className="flex items-center gap-1 mb-8 bg-slate-900 border border-slate-800 rounded-xl p-1 w-fit">
+              <div className="flex items-center gap-1 mb-10 bg-secondary border border-border rounded-2xl p-1.5 w-fit shadow-sm">
                 {TABS.map(({ id, label, icon, activeClass }) => (
                   <button
                     key={id}
                     onClick={() => setActiveTab(id as any)}
-                    className={`flex items-center gap-2 px-3 md:px-4 py-2 rounded-lg text-[10px] font-mono font-bold transition-all ${
-                      activeTab === id ? activeClass : 'text-slate-500 hover:text-slate-300'
-                    }`}
+                    className={cn(
+                      "flex items-center gap-2.5 px-5 py-2.5 rounded-xl text-[10px] font-black transition-all",
+                      activeTab === id ? activeClass : "text-muted-foreground/60 hover:text-foreground"
+                    )}
                   >
                     {icon}
-                    <span className="hidden sm:inline">{label}</span>
+                    <span className="hidden sm:inline uppercase tracking-widest">{label}</span>
                   </button>
                 ))}
               </div>
@@ -498,24 +489,24 @@ export default function Dashboard() {
                       }
 
                       return (
-                        <div key={event.id} className="bg-slate-900/50 border border-slate-800 rounded-2xl p-6 group hover:border-blue-500/30 transition-all flex flex-col">
-                          <div className="flex justify-between items-start mb-4">
-                            <span className="text-[8px] font-mono text-slate-500 uppercase tracking-widest bg-slate-800 px-1.5 py-0.5 rounded border border-slate-700">RAW_EVENT</span>
-                            <span className="text-[9px] font-mono text-slate-600 uppercase">{event.category}</span>
+                        <div key={event.id} className="bg-card border border-border rounded-3xl p-6 group hover:border-primary/30 transition-all shadow-sm flex flex-col backdrop-blur-sm">
+                          <div className="flex justify-between items-start mb-6">
+                            <span className="text-[9px] font-black text-muted-foreground uppercase tracking-[0.2em] bg-secondary px-2 py-0.5 rounded-lg border border-border opacity-60">RAW_EVENT</span>
+                            <span className="text-[9px] font-black text-muted-foreground uppercase tracking-widest opacity-40">{event.category}</span>
                           </div>
-                          <h3 className="text-white font-bold text-lg mb-4 line-clamp-2">{event.title}</h3>
+                          <h3 className="text-foreground font-black text-lg mb-6 line-clamp-2 tracking-tight">{event.title}</h3>
                           
-                          <div className="flex-1 space-y-2 mb-6">
+                          <div className="flex-1 space-y-3 mb-8">
                             {event.markets.map((m: any) => (
-                              <div key={m.id} className="flex justify-between items-center bg-slate-950 p-3 rounded-xl border border-slate-800">
-                                <span className="text-[11px] text-slate-300 font-medium">{m.title}</span>
+                              <div key={m.id} className="flex justify-between items-center bg-secondary/50 p-4 rounded-2xl border border-border/50 group/row hover:bg-secondary transition-colors">
+                                <span className="text-[11px] text-foreground/80 font-black uppercase tracking-tight">{m.title}</span>
                                 <div className="flex items-center gap-4">
-                                  <span className="text-[11px] font-mono text-white">{(m.outcome1Price * 100).toFixed(0)}%</span>
+                                  <span className="text-[11px] font-black text-primary font-mono">{(m.outcome1Price * 100).toFixed(0)}%</span>
                                   <a 
                                     href={`https://app.bayse.markets/market/${event.id}`} 
                                     target="_blank" 
                                     rel="noopener noreferrer"
-                                    className="p-1.5 bg-blue-600/10 hover:bg-blue-600/20 text-blue-500 rounded-lg transition"
+                                    className="p-1.5 bg-primary/10 hover:bg-primary/20 text-primary rounded-lg transition-all"
                                   >
                                     <TrendingUp size={12} />
                                   </a>
@@ -527,7 +518,7 @@ export default function Dashboard() {
                           <button 
                             onClick={() => requestAnalysis(event.id)}
                             disabled={analyzingEventId === event.id}
-                            className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-slate-800 hover:bg-blue-600 text-[10px] font-mono font-bold text-slate-300 hover:text-white rounded-xl transition-all disabled:opacity-50"
+                            className="w-full flex items-center justify-center gap-2 px-6 py-3 bg-primary hover:bg-primary/90 text-[10px] font-black text-primary-foreground rounded-2xl transition-all shadow-lg shadow-primary/20 disabled:opacity-50 uppercase tracking-widest"
                           >
                             {analyzingEventId === event.id ? (
                               <Loader2 className="animate-spin" size={14} />
@@ -549,27 +540,31 @@ export default function Dashboard() {
                         <button
                           key={s}
                           onClick={() => setSentimentFilter(s)}
-                          className={`text-[9px] font-mono font-bold px-3 py-1.5 rounded-lg border transition-colors ${sentimentFilter === s
-                              ? s === 'BULLISH' ? 'bg-green-500/20 border-green-500/50 text-green-400'
-                                : s === 'BEARISH' ? 'bg-red-500/20 border-red-500/50 text-red-400'
-                                  : s === 'RISK_ALERT' ? 'bg-orange-500/20 border-orange-500/50 text-orange-400'
-                                    : s === 'NEUTRAL' ? 'bg-slate-500/20 border-slate-500/50 text-slate-400'
-                                      : 'bg-blue-500/20 border-blue-500/50 text-blue-400'
-                              : 'bg-slate-900 border-slate-700 text-slate-500 hover:border-slate-500'
-                            }`}
+                          className={cn(
+                            "text-[10px] font-black px-4 py-2 rounded-xl border transition-all shadow-sm",
+                            sentimentFilter === s
+                              ? s === 'BULLISH' ? 'bg-green-500/10 border-green-500/30 text-green-600 dark:text-green-400'
+                                : s === 'BEARISH' ? 'bg-red-500/10 border-red-500/30 text-red-600 dark:text-red-400'
+                                  : s === 'RISK_ALERT' ? 'bg-orange-500/10 border-orange-500/30 text-orange-600 dark:text-orange-400'
+                                    : s === 'NEUTRAL' ? 'bg-muted border-border text-muted-foreground'
+                                      : 'bg-primary/10 border-primary/30 text-primary'
+                              : 'bg-secondary border-border text-muted-foreground/60 hover:border-primary/20 hover:text-foreground'
+                          )}
                         >
                           {s}
                         </button>
                       ))}
-                      <div className="w-px bg-slate-800 mx-1" />
+                      <div className="w-px bg-border mx-2" />
                       {categories.map((c) => (
                         <button
                           key={c}
                           onClick={() => setCategoryFilter(c)}
-                          className={`text-[9px] font-mono px-3 py-1.5 rounded-lg border transition-colors ${categoryFilter === c
-                              ? 'bg-slate-700 border-slate-500 text-white'
-                              : 'bg-slate-900 border-slate-700 text-slate-500 hover:border-slate-500'
-                            }`}
+                          className={cn(
+                            "text-[10px] font-black px-4 py-2 rounded-xl border transition-all shadow-sm",
+                            categoryFilter === c
+                              ? 'bg-foreground text-background border-foreground'
+                              : 'bg-secondary border-border text-muted-foreground/60 hover:border-primary/20 hover:text-foreground'
+                          )}
                         >
                           {c}
                         </button>
@@ -590,17 +585,17 @@ export default function Dashboard() {
                     </div>
 
                     {/* Legend Bar */}
-                    <div className="flex flex-wrap gap-3 mb-6 p-3 bg-slate-900/60 border border-slate-800 rounded-xl">
+                    <div className="flex flex-wrap gap-4 mb-10 p-4 bg-secondary/40 border border-border rounded-2xl backdrop-blur-sm">
                       {[
-                        { sentiment: "BULLISH", color: "text-green-400", dot: "bg-green-400", action: "Buy YES — AI sees underpriced upside" },
-                        { sentiment: "BEARISH", color: "text-red-400", dot: "bg-red-400", action: "Buy NO — crowd overpricing the outcome" },
-                        { sentiment: "RISK_ALERT", color: "text-orange-400", dot: "bg-orange-400", action: "Stay out — high uncertainty, thin data" },
-                        { sentiment: "NEUTRAL", color: "text-slate-400", dot: "bg-slate-400", action: "Monitor — no meaningful mispricing" },
+                        { sentiment: "BULLISH", color: "text-green-600 dark:text-green-400", dot: "bg-green-500", action: "Buy YES — AI sees underpriced upside" },
+                        { sentiment: "BEARISH", color: "text-red-600 dark:text-red-400", dot: "bg-red-500", action: "Buy NO — crowd overpricing the outcome" },
+                        { sentiment: "RISK_ALERT", color: "text-orange-600 dark:text-orange-400", dot: "bg-orange-500", action: "Stay out — high uncertainty, thin data" },
+                        { sentiment: "NEUTRAL", color: "text-muted-foreground", dot: "bg-muted-foreground/30", action: "Monitor — no meaningful mispricing" },
                       ].map(({ sentiment, color, dot, action }) => (
-                        <div key={sentiment} className="flex items-center gap-2">
-                          <div className={`w-1.5 h-1.5 rounded-full ${dot}`} />
-                          <span className={`text-[9px] font-mono font-black ${color}`}>{sentiment}</span>
-                          <span className="text-[9px] font-mono text-slate-600">{action}</span>
+                        <div key={sentiment} className="flex items-center gap-2.5">
+                          <div className={`w-1.5 h-1.5 rounded-full ${dot} shadow-sm`} />
+                          <span className={`text-[10px] font-black uppercase tracking-tight ${color}`}>{sentiment}</span>
+                          <span className="text-[10px] font-medium text-muted-foreground italic opacity-70">{action}</span>
                         </div>
                       ))}
                     </div>
@@ -620,13 +615,15 @@ export default function Dashboard() {
                   </>
                 )}
                 {activeTab === 'leaderboard' && (
-                  <div className="bg-slate-900/50 border border-slate-800 rounded-2xl p-6">
-                    <div className="flex items-center gap-2 mb-6">
-                      <Trophy size={14} className="text-orange-400" />
-                      <h2 className="text-xs font-black text-slate-400 uppercase tracking-widest">
+                  <div className="bg-card border border-border rounded-2xl p-8 shadow-sm">
+                    <div className="flex items-center gap-3 mb-8">
+                      <div className="p-2 bg-orange-500/10 rounded-lg">
+                        <Trophy size={16} className="text-orange-500" />
+                      </div>
+                      <h2 className="text-sm font-black text-foreground uppercase tracking-[0.2em]">
                         Divergence Leaderboard
                       </h2>
-                      <span className="ml-auto text-[9px] font-mono text-slate-600">
+                      <span className="ml-auto text-[10px] font-black text-muted-foreground uppercase opacity-40">
                         Ranked by AI vs Market gap
                       </span>
                     </div>
@@ -643,24 +640,24 @@ export default function Dashboard() {
 
               {activeTab !== 'intelligence' && (
                 <div className="hidden lg:block lg:col-span-4 sticky top-12 h-fit space-y-8">
-                <div className="bg-slate-900/80 border border-slate-800 p-8 rounded-3xl backdrop-blur-xl">
-                  <h2 className="text-xs font-black text-slate-500 uppercase tracking-widest mb-8">AI Synthesis</h2>
+                <div className="bg-card border border-border p-8 rounded-3xl shadow-sm backdrop-blur-sm">
+                  <h2 className="text-xs font-black text-muted-foreground uppercase tracking-[0.2em] mb-8 opacity-40">AI Synthesis</h2>
                   <OjaScore signals={signalsData?.signals ?? []} />
                   <ConfidenceGauge value={globalConfidence} />
-                  <div className="mt-8 pt-8 border-t border-slate-800/50 space-y-4">
-                    <div className="flex justify-between text-[10px] font-mono">
-                      <span className="text-slate-500">ACTIVE_SIGNALS</span>
-                      <span className="text-white">{signalsData?.active_signals ?? "—"}</span>
+                  <div className="mt-8 pt-8 border-t border-border/50 space-y-4">
+                    <div className="flex justify-between text-[10px] font-black uppercase tracking-widest">
+                      <span className="text-muted-foreground/60">ACTIVE_SIGNALS</span>
+                      <span className="text-foreground">{signalsData?.active_signals ?? "—"}</span>
                     </div>
-                    <div className="flex justify-between text-[10px] font-mono">
-                      <span className="text-slate-500">DATA_POINTS</span>
-                      <span className="text-white">{signalsData?.data_points.toLocaleString() ?? "—"}</span>
+                    <div className="flex justify-between text-[10px] font-black uppercase tracking-widest">
+                      <span className="text-muted-foreground/60">DATA_POINTS</span>
+                      <span className="text-foreground">{signalsData?.data_points.toLocaleString() ?? "—"}</span>
                     </div>
                   </div>
                 </div>
                 <SystemLog />
-                <div className="space-y-4">
-                  <h2 className="text-xs font-black text-slate-500 uppercase tracking-widest ml-2">Recent Logic</h2>
+                <div className="space-y-6">
+                  <h2 className="text-xs font-black text-muted-foreground uppercase tracking-[0.2em] ml-2 opacity-40">Recent Logic</h2>
                   {signalsData?.signals.map((s, i) => (
                     <SignalCard key={i} signal={s} />
                   ))}

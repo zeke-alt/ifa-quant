@@ -9,35 +9,51 @@ const ai = new GoogleGenAI({
 
 export async function POST(req: Request) {
   try {
-    const { prompt } = await req.json();
+    const { prompt, mode, history } = await req.json();
 
-    if (!prompt) {
-      return NextResponse.json({ error: "No prompt provided" }, { status: 400 });
+    let systemInstruction = "";
+    let userPrompt = "";
+
+    if (mode === "optimize") {
+      systemInstruction = `
+        You are a Quant Strategy Optimizer. You will be given a recent price history of a prediction market.
+        Your goal is to suggest the best entry/exit strategy to maximize returns based on the trend.
+
+        RULES:
+        1. Direction: 'BUY' (bet YES) or 'SELL' (bet NO).
+        2. entryThreshold: probability to enter (0.01 - 0.99).
+        3. exitThreshold: probability to exit for profit (0.01 - 0.99).
+        4. holdDays: max hold time (integer).
+
+        Return ONLY valid JSON in this exact shape:
+        {
+          "direction": "BUY" | "SELL",
+          "entryThreshold": number,
+          "exitThreshold": number,
+          "holdDays": number,
+          "reasoning": "A one-sentence explanation of why this strategy fits the current chart trend."
+        }
+      `;
+      userPrompt = `Price History (last 20 points): ${JSON.stringify(history?.slice(-20))}`;
+    } else {
+      systemInstruction = `
+        You are a Quant Trading Strategy Parser. Extract trading parameters from natural language.
+        
+        Return ONLY valid JSON in this exact shape:
+        {
+          "direction": "BUY" | "SELL",
+          "entryThreshold": number,
+          "exitThreshold": number,
+          "holdDays": number,
+          "reasoning": "A short summary of the user's intent."
+        }
+      `;
+      userPrompt = prompt;
     }
-
-    const systemInstruction = `
-      You are a Quant Trading Strategy Parser for prediction markets.
-      Extract trading parameters from the user's natural language.
-      
-      RULES:
-      1. Direction: 'BUY' means the user wants the event to happen (YES), 'SELL' means they want to bet against it (NO).
-      2. Thresholds: Must be between 0.01 and 0.99. 
-         - entryThreshold: the probability at which they want to enter.
-         - exitThreshold: the probability at which they want to exit for profit.
-      3. holdDays: Number of days to hold the position before forced exit. Default is 14 if not mentioned.
-
-      Return ONLY valid JSON in this exact shape:
-      {
-        "direction": "BUY" | "SELL",
-        "entryThreshold": number,
-        "exitThreshold": number,
-        "holdDays": number
-      }
-    `;
 
     const result = await ai.models.generateContent({
       model: "gemini-2.5-flash-lite",
-      contents: [{ role: "user", parts: [{ text: `${systemInstruction}\n\nUser Prompt: "${prompt}"` }] }],
+      contents: [{ role: "user", parts: [{ text: `${systemInstruction}\n\nUser Input: "${userPrompt}"` }] }],
       config: {
         responseMimeType: "application/json",
       },
@@ -46,10 +62,10 @@ export async function POST(req: Request) {
     const responseText = result.text;
     if (!responseText) throw new Error("Gemini returned empty response");
 
-    const strategy = JSON.parse(responseText);
-    return NextResponse.json(strategy);
+    const data = JSON.parse(responseText);
+    return NextResponse.json(data);
   } catch (err) {
     console.error("[Parse Strategy Error]:", err);
-    return NextResponse.json({ error: "Failed to parse strategy" }, { status: 500 });
+    return NextResponse.json({ error: "Failed to process strategy" }, { status: 500 });
   }
 }

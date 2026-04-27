@@ -23,14 +23,14 @@ export default function SystemLog() {
   }, []);
 
   return (
-    <div className="bg-slate-950 border border-slate-800 rounded-xl p-4 font-mono text-[9px] h-32 overflow-hidden">
-      <div className="text-slate-500 mb-2 border-b border-slate-800 pb-1 flex justify-between">
+    <div className="bg-secondary/50 border border-border rounded-2xl p-5 font-mono text-[10px] h-36 overflow-hidden backdrop-blur-sm">
+      <div className="text-muted-foreground mb-3 border-b border-border pb-2 flex justify-between font-black uppercase tracking-widest">
         <span>LIVE_SYSTEM_LOG</span>
-        <span className="animate-pulse">●</span>
+        <span className="text-primary animate-pulse">●</span>
       </div>
-      <div className="space-y-1">
+      <div className="space-y-1.5">
         {logs.map((log, i) => (
-          <div key={i} className={i === 0 ? "text-blue-400" : "text-slate-600"}>
+          <div key={i} className={i === 0 ? "text-primary font-bold" : "text-muted-foreground/60"}>
             {log}
           </div>
         ))}

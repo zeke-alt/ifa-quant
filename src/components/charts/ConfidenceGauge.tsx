@@ -52,8 +52,8 @@ export default function ConfidenceGauge({ value = 75 }) {
             {/* The Active Segment (The Value) */}
             <Cell fill={dynamicColor} className="transition-all duration-500" />
             
-            {/* The Background Track (Dark Slate) */}
-            <Cell fill="#1e293b" /> 
+            {/* The Background Track */}
+            <Cell fill="var(--secondary)" /> 
           </Pie>
         </PieChart>
       </ResponsiveContainer>
@@ -61,12 +61,12 @@ export default function ConfidenceGauge({ value = 75 }) {
       {/* Centered Text Overlay: Displays the numerical percentage */}
       <div className="absolute bottom-2 flex flex-col items-center">
         <span 
-          className="text-2xl font-bold transition-colors duration-500"
+          className="text-2xl font-black transition-colors duration-500 tracking-tighter"
           style={{ color: dynamicColor }}
         >
           {value}%
         </span>
-        <span className="text-[10px] text-slate-500 uppercase font-mono tracking-widest">
+        <span className="text-[10px] text-muted-foreground uppercase font-black tracking-widest opacity-60">
           Reliability
         </span>
       </div>

@@ -2,6 +2,7 @@
 import { NextResponse } from "next/server";
 import { bayseRead } from "@/lib/bayse-server";
 
+// @ts-ignore
 export async function GET(
   req: Request,
   { params }: { params: Promise<{ eventId: string; marketId: string }> }

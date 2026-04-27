@@ -17,13 +17,14 @@ import { MacroSignal } from '@/types/macro';
 import DivergenceLine from '@/components/charts/DivergenceLine';
 import QuoteDrawer from '@/components/ui/QuoteDrawer';
 import { useBookmarks } from '@/hooks/useBookmarks';
+import { cn } from '@/lib/utils';
 
 // ── Sentiment config ────────────────────────────────────────────────────────
 const SENTIMENT_CONFIG = {
   BULLISH: { icon: TrendingUp, color: 'text-green-500', bg: 'bg-green-500/10', label: 'BULLISH' },
   BEARISH: { icon: TrendingDown, color: 'text-red-500', bg: 'bg-red-500/10', label: 'BEARISH' },
   RISK_ALERT: { icon: AlertTriangle, color: 'text-orange-500', bg: 'bg-orange-500/10', label: 'RISK_ALERT' },
-  NEUTRAL: { icon: Minus, color: 'text-slate-400', bg: 'bg-slate-500/10', label: 'NEUTRAL' },
+  NEUTRAL: { icon: Minus, color: 'text-muted-foreground', bg: 'bg-secondary', label: 'NEUTRAL' },
 };
 
 // ── Trade score engine ──────────────────────────────────────────────────────
@@ -77,8 +78,8 @@ function computeTradeScore(signal: MacroSignal) {
     reasoning = `Moderate confidence. The signal leans positive but has some uncertainty — either the source isn't fully reliable or historical accuracy is mixed. Consider a smaller position size.`;
   } else if (score >= 42) {
     action = 'HOLD';
-    actionColor = 'text-slate-400';
-    actionBg = 'bg-slate-500/10 border-slate-500/30';
+    actionColor = 'text-muted-foreground';
+    actionBg = 'bg-secondary border-border';
     reasoning = `Mixed signals. The AI probability and data quality don't align strongly enough to justify a trade right now. Wait for the market to develop more clarity before entering.`;
   } else {
     action = 'AVOID ↓';
@@ -281,62 +282,62 @@ export default function MarketCard({ signal, currency = 'USD' }: { signal: Macro
         />
       )}
 
-      <div className="bg-slate-900/50 border border-slate-800 rounded-2xl group transition-all flex flex-col justify-between hover:border-blue-500/40 hover:scale-[1.02]">
-        <div className="p-6">
+      <div className="bg-card/50 backdrop-blur-sm border border-border rounded-3xl group transition-all duration-300 flex flex-col justify-between hover:border-primary/50 hover:shadow-2xl hover:shadow-primary/5 hover:-translate-y-1">
+        <div className="p-8">
 
           {/* ── Header ── */}
-          <div className="flex justify-between items-start mb-6">
+          <div className="flex justify-between items-start mb-8">
             <div className="flex items-center gap-2">
-              <div className={`flex items-center gap-1.5 px-2 py-1 rounded-lg ${config.bg}`}>
-                <SentimentIcon size={12} className={config.color} />
-                <span className={`text-[9px] font-mono font-bold ${config.color}`}>{config.label}</span>
+              <div className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl ${config.bg} border border-transparent group-hover:border-current/10 transition-colors`}>
+                <SentimentIcon size={14} className={config.color} />
+                <span className={`text-[10px] font-black tracking-wider ${config.color}`}>{config.label}</span>
               </div>
               <button
                 onClick={() => toggleBookmark(signal.marketId)}
-                className={`p-1.5 rounded-lg border transition-all ${
+                className={`p-2 rounded-xl border transition-all ${
                   bookmarked 
-                    ? 'bg-blue-600/20 border-blue-500/50 text-blue-400' 
-                    : 'bg-slate-800 border-slate-700 text-slate-500 hover:text-slate-300'
+                    ? 'bg-blue-500/10 border-blue-500/30 text-blue-500' 
+                    : 'bg-secondary border-border text-muted-foreground hover:text-foreground'
                 }`}
                 title={bookmarked ? "Remove bookmark" : "Add bookmark"}
               >
-                <Bookmark size={12} fill={bookmarked ? "currentColor" : "none"} />
+                <Bookmark size={14} fill={bookmarked ? "currentColor" : "none"} />
               </button>
             </div>
             <div className="text-right">
-              <div className="text-[10px] text-slate-500 font-mono uppercase tracking-tighter">AI Prediction</div>
-              <div className="text-xl font-bold text-white font-mono">{prob}%</div>
-              <div className="text-[9px] text-slate-500 font-mono mt-0.5">
-                COST: {currency === 'NGN' ? '₦' : '$'}{(Number(signal.yesProbability) * (currency === 'NGN' ? 100 : 1)).toFixed(2)} / SHARE
+              <div className="text-[10px] text-muted-foreground font-mono uppercase tracking-widest mb-1 opacity-80">AI Prediction</div>
+              <div className="text-3xl font-black text-foreground font-mono tracking-tighter">{prob}%</div>
+              <div className="text-[10px] text-muted-foreground font-mono mt-1 font-bold">
+                COST: {currency === 'NGN' ? '₦' : '$'}{(Number(signal.yesProbability) * (currency === 'NGN' ? 100 : 1)).toFixed(2)}
               </div>
             </div>
           </div>
 
           {/* ── Event context + headline ── */}
-          <div className="flex flex-col gap-1 mb-4">
-            <div className="flex items-center gap-2 mb-1">
-              <div className="bg-slate-800 px-1.5 py-0.5 rounded text-[8px] font-mono text-slate-400 uppercase tracking-widest border border-slate-700">
+          <div className="flex flex-col gap-2 mb-6">
+            <div className="flex items-center gap-2">
+              <div className="bg-secondary px-2 py-1 rounded-lg text-[9px] font-black text-muted-foreground uppercase tracking-widest border border-border">
                 {signal.eventTitle}
               </div>
-              <span className="text-[9px] font-mono text-slate-600 uppercase">{signal.category}</span>
+              <span className="text-[9px] font-mono text-muted-foreground/60 uppercase font-bold">{signal.category}</span>
             </div>
 
-            <h3 className="text-white font-bold text-lg leading-tight group-hover:text-blue-400 transition-colors">
+            <h3 className="text-foreground font-black text-xl leading-[1.1] tracking-tight group-hover:text-primary transition-colors">
               {signal.headline}
             </h3>
 
-            <p className="text-slate-500 text-[11px] italic mt-1">
+            <p className="text-muted-foreground text-xs italic opacity-80 font-medium">
               {signal.marketTitle}
             </p>
           </div>
 
           {/* ── Divergence chart ── */}
-          <div className="border border-slate-800 rounded-xl p-4 bg-slate-950 mb-4">
-            <div className="flex justify-between text-[10px] font-mono mb-2">
-              <div className="flex items-center gap-1.5 text-blue-500">
-                <Target size={12} /> AI_FAIR_VALUE
+          <div className="border border-border rounded-2xl p-5 bg-background/50 mb-6">
+            <div className="flex justify-between text-[10px] font-mono mb-3">
+              <div className="flex items-center gap-1.5 text-primary font-bold">
+                <Target size={14} /> AI_FAIR_VALUE
               </div>
-              <div className="text-slate-500 opacity-60">MARKET_SENTIMENT</div>
+              <div className="text-muted-foreground opacity-60 font-bold">MARKET_SENTIMENT</div>
             </div>
             <DivergenceLine
               aiProb={probability * 100}
@@ -347,17 +348,17 @@ export default function MarketCard({ signal, currency = 'USD' }: { signal: Macro
           </div>
 
           {/* ── Reliability stats ── */}
-          <div className="grid grid-cols-2 gap-2 mb-4">
+          <div className="grid grid-cols-2 gap-3 mb-6">
             {[
-              { label: 'ANALYSIS_CONFIDENCE', value: signal.source_reliability },
-              { label: 'HIST_ACCURACY', value: signal.historical_accuracy },
+              { label: 'CONFIDENCE', value: signal.source_reliability },
+              { label: 'ACCURACY', value: signal.historical_accuracy },
             ].map(({ label, value }) => (
-              <div key={label} className="bg-slate-950 rounded-lg p-2">
-                <div className="text-[9px] font-mono text-slate-500 mb-1">{label}</div>
-                <div className="text-[11px] font-mono text-white">{(value * 100).toFixed(0)}%</div>
-                <div className="mt-1 h-0.5 bg-slate-800 rounded-full">
+              <div key={label} className="bg-secondary/50 rounded-2xl p-3 border border-border/50">
+                <div className="text-[9px] font-black text-muted-foreground mb-1.5 tracking-wider uppercase">{label}</div>
+                <div className="text-sm font-black text-foreground font-mono">{(value * 100).toFixed(0)}%</div>
+                <div className="mt-2 h-1 bg-muted rounded-full overflow-hidden">
                   <div
-                    className="h-full bg-blue-500 rounded-full transition-all"
+                    className="h-full bg-primary rounded-full transition-all duration-1000"
                     style={{ width: `${value * 100}%` }}
                   />
                 </div>
@@ -366,116 +367,81 @@ export default function MarketCard({ signal, currency = 'USD' }: { signal: Macro
           </div>
 
           {/* ── Momentum + direction + trade score ── */}
-          <div className="flex items-center justify-between mb-3">
-            <div className="text-[10px] font-mono text-slate-500">
-              MOMENTUM: <span className={momentumColor}>{momentumLabel}</span>
+          <div className="flex items-center justify-between mb-4 px-1">
+            <div className="text-[10px] font-mono text-muted-foreground font-bold">
+              MOMENTUM: <span className={cn("font-black", momentumColor)}>{momentumLabel}</span>
             </div>
-            <div className={`text-[10px] font-mono ${directionColor}`}>
+            <div className={cn("text-[10px] font-black font-mono", directionColor)}>
               {directionLabel}
             </div>
-            <div className={`px-2 py-1 rounded-lg border text-[9px] font-mono font-bold ${actionBg} ${actionColor}`}>
+            <div className={cn("px-2 py-1 rounded-lg border text-[10px] font-black font-mono", actionBg, actionColor)}>
               {action}
             </div>
           </div>
 
           {/* ── Trade button + breakdown toggle ── */}
-          <div className="flex items-center gap-2">
-            {/*
-             * PRIMARY CTA — now opens QuoteDrawer instead of navigating to Bayse.
-             * The external link is demoted to a small fallback inside the expanded
-             * panel for users who prefer the full Bayse interface.
-             *
-             * Pulse ring on the button when score is actionable — draws the eye.
-             */}
+          <div className="flex items-center gap-3">
             <button
               onClick={() => setShowQuote(true)}
-              className={`
-                flex-1 flex items-center justify-center gap-2
-                px-4 py-2 rounded-xl text-xs font-bold transition-all
-                relative
-                ${isActionable
-                  ? 'bg-blue-600 hover:bg-blue-500 text-white'
-                  : 'bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700'
-                }
-              `}
-            >
-              {/* Pulse ring — only when actionable */}
-              {isActionable && (
-                <span className="absolute inset-0 rounded-xl bg-blue-600 opacity-20 pointer-events-none" />
+              className={cn(
+                "flex-1 flex items-center justify-center gap-3",
+                "px-6 py-4 rounded-2xl text-xs font-black transition-all",
+                "relative overflow-hidden group/btn shadow-xl shadow-primary/10",
+                isActionable
+                  ? 'bg-primary hover:bg-primary/90 text-primary-foreground'
+                  : 'bg-secondary hover:bg-muted text-muted-foreground border border-border'
               )}
-              <Zap size={13} />
-              Quick trade
+            >
+              {isActionable && (
+                <span className="absolute inset-0 rounded-2xl bg-white/20 opacity-0 group-hover/btn:opacity-100 transition-opacity pointer-events-none" />
+              )}
+              <Zap size={14} className={isActionable ? "animate-pulse" : ""} />
+              EXECUTE_TRADE
             </button>
 
             {/* Breakdown toggle */}
             <button
               onClick={() => setExpanded(prev => !prev)}
-              className="p-2 rounded-xl border border-slate-700 hover:border-slate-500 text-slate-400 hover:text-white transition"
+              className="p-4 rounded-2xl border border-border bg-card hover:bg-secondary text-muted-foreground hover:text-foreground transition-all shadow-sm"
               title="View reasoning"
             >
-              {expanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+              {expanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
             </button>
           </div>
         </div>
 
         {/* ── Expanded breakdown panel ── */}
         {expanded && (
-          <div className="border-t border-slate-800 px-6 py-4 space-y-4">
+          <div className="border-t border-border px-8 py-6 space-y-6 bg-secondary/20">
 
             {/* Score bar */}
             <div>
-              <div className="flex justify-between text-[9px] font-mono text-slate-500 mb-1">
-                <span>TRADE_SCORE</span>
-                <span className={actionColor}>{score.toFixed(0)} / 100</span>
+              <div className="flex justify-between text-[10px] font-black text-muted-foreground mb-2 uppercase tracking-widest">
+                <span>TRADE_SCORE_INDEX</span>
+                <span className={cn("font-black", actionColor)}>{score.toFixed(0)} / 100</span>
               </div>
-              <div className="h-1 bg-slate-800 rounded-full">
+              <div className="h-1.5 bg-muted rounded-full overflow-hidden">
                 <div
-                  className={`h-full rounded-full transition-all ${score >= 75 ? 'bg-green-500'
+                  className={cn("h-full rounded-full transition-all duration-1000", 
+                    score >= 75 ? 'bg-green-500'
                     : score >= 58 ? 'bg-blue-500'
-                      : score >= 42 ? 'bg-slate-400'
+                      : score >= 42 ? 'bg-muted-foreground/40'
                         : 'bg-red-500'
-                    }`}
+                  )}
                   style={{ width: `${score}%` }}
                 />
               </div>
             </div>
 
-            {/* Fee efficiency */}
-            <div>
-              <div className="flex justify-between text-[9px] font-mono text-slate-500 mb-1">
-                <span>TRADING_FEE_EFFICIENCY</span>
-                <span className="text-white">
-                  {(
-                    (signal.feeRate || 0.1) *
-                    Math.max(1 - (sentiment === 'BEARISH' ? 1 - signal.yesProbability : signal.yesProbability), 0.5) *
-                    100
-                  ).toFixed(1)}%
-                </span>
-              </div>
-              <div className="h-1 bg-slate-800 rounded-full overflow-hidden">
-                <div
-                  className="h-full bg-orange-500/50"
-                  style={{
-                    width: `${(signal.feeRate
-                      ? signal.feeRate * Math.max(1 - signal.yesProbability, 0.5) * 100
-                      : 5.0) * 10}%`
-                  }}
-                />
-              </div>
-              <p className="text-[9px] text-slate-500 mt-1 italic">
-                Variance-based fee: lower at extreme probabilities, higher near 0.50.
-              </p>
-            </div>
-
             {/* Recommendation reasoning */}
-            <div>
-              <div className="text-[9px] font-mono text-slate-500 mb-1">RECOMMENDATION</div>
-              <p className="text-[11px] text-slate-300 leading-relaxed">{reasoning}</p>
+            <div className="bg-background/50 p-4 rounded-2xl border border-border">
+              <div className="text-[10px] font-black text-muted-foreground mb-2 uppercase tracking-widest">RECOMMENDATION</div>
+              <p className="text-xs text-foreground/80 leading-relaxed font-medium">{reasoning}</p>
             </div>
 
             {/* Gemini's raw logic */}
             <div>
-              <div className="text-[9px] font-mono text-slate-500 mb-1">AI_REASONING</div>
+              <div className="text-[10px] font-black text-muted-foreground mb-2 uppercase tracking-widest">AI_ANALYSIS_LOGIC</div>
               <LogicText text={signal.logic} />
             </div>
 
@@ -484,9 +450,9 @@ export default function MarketCard({ signal, currency = 'USD' }: { signal: Macro
               href={`https://app.bayse.markets/market/${signal.eventId}`}
               target="_blank"
               rel="noopener noreferrer"
-              className="flex items-center gap-1.5 text-[10px] font-mono text-slate-600 hover:text-slate-400 transition-colors"
+              className="flex items-center gap-2 text-[10px] font-black text-primary hover:underline transition-all"
             >
-              Open on Bayse <ArrowRight size={10} />
+              Open Raw Data on Bayse <ArrowRight size={12} />
             </a>
           </div>
         )}
