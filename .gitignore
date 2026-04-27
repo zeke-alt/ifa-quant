@@ -40,3 +40,6 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 service-account.json
+
+# AI signal cache (disk-persisted, auto-generated)
+/.cache

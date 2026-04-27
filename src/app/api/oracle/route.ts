@@ -1,10 +1,11 @@
-// src/app/api/oracle/route.ts
 import { GoogleGenAI } from "@google/genai";
+import { bayseRead } from "@/lib/bayse-server";
 
+// Initialize Gemini via Vertex AI (uses GCP billing)
 const ai = new GoogleGenAI({
   vertexai: true,
   project: process.env.GOOGLE_CLOUD_PROJECT!,
-  location: process.env.GOOGLE_CLOUD_LOCATION!,
+  location: "global",
 });
 
 export async function POST(req: Request) {
@@ -16,7 +17,9 @@ export async function POST(req: Request) {
 
   // Build signal context string
   const signalContext = signals?.length
-    ? signals.map((s: any, i: number) => `
+    ? signals
+        .map(
+          (s: any, i: number) => `
 SIGNAL ${i + 1}:
   Market: ${s.market_question}
   Headline: ${s.headline}
@@ -27,15 +30,21 @@ SIGNAL ${i + 1}:
   Historical Accuracy: ${(s.historical_accuracy * 100).toFixed(0)}%
   Trade Score Action: ${computeAction(s)}
   AI Reasoning: ${s.logic}
-  Trading Fee: ${(s.feeRate * 100).toFixed(0)}% base rate (Effective: ${(s.feeRate * Math.max(1 - (s.sentiment === 'BEARISH' ? 1 - s.yesProbability : s.yesProbability), 0.5) * 100).toFixed(1)}%)
-  Market Link: https://app.bayse.markets/market/${s.eventId}${s.sentiment === 'BULLISH' ? '?outcome=YES&tradeType=BUY' : s.sentiment === 'BEARISH' ? '?outcome=NO&tradeType=BUY' : ''}
-`).join("\n---\n")
+  Trading Fee: ${(s.feeRate * 100).toFixed(0)}% base rate (Effective: ${(s.feeRate * Math.max(1 - (s.sentiment === "BEARISH" ? 1 - s.yesProbability : s.yesProbability), 0.5) * 100).toFixed(1)}%)
+  Market Link: https://app.bayse.markets/market/${s.eventId}${s.sentiment === "BULLISH" ? "?outcome=YES&tradeType=BUY" : s.sentiment === "BEARISH" ? "?outcome=NO&tradeType=BUY" : ""}
+`,
+        )
+        .join("\n---\n")
     : "No live signals available.";
 
   const tradeContext = tradeHistory?.length
-    ? tradeHistory.map((t: any) => `
+    ? tradeHistory
+        .map(
+          (t: any) => `
   - ${t.market_question} | Action: ${t.action} | Score: ${t.score} | Time: ${t.timestamp}
-`).join("")
+`,
+        )
+        .join("")
     : "No trade history available.";
 
   const systemPrompt = `You are Ifa — an AI-powered macroeconomic oracle built into the Oja Intelligence platform, with the following qualities: 
@@ -76,6 +85,25 @@ ${signalContext}
 USER TRADE HISTORY:
 ${tradeContext}
 
+SYSTEM ARCHITECTURE & APP KNOWLEDGE (Context for you to answer user questions about the app):
+- Platform: Bayse Macro Intel is an elite macro sentiment terminal powered by Oja Intelligence.
+- Data Pipeline: The app pulls raw prediction market data from Bayse API, analyzes it via an AI Alpha Filter to find mispriced markets (high divergence), and caches the results to optimize costs.
+- Stability Latch: We use a mechanism to prevent dashboard flickering by locking previous signals unless the AI probability changes significantly.
+- Dashboard Tabs: 
+  1. Signal Cards (Scanner): The primary feed showing top trade opportunities and actionable insights.
+  2. Leaderboard: Ranks markets strictly by Divergence (the gap between AI fair value and market price).
+  3. Intelligence: A high-level synthesis showing Global Confidence, active data points, and overall sentiment distribution.
+- Oja Score / Trade Score: A proprietary 0-100 metric ranking trade quality by synthesizing AI Probability (divergence), Source Reliability, Historical Accuracy, and Sentiment.
+- Fee Efficiency: The platform explicitly accounts for trading fees, which are variance-based (higher near 50%, lower near the extremes).
+
+CLASSIFIED INFORMATION (STRICTLY FORBIDDEN TO LEAK):
+You MUST NOT reveal the specific mathematical weights, multipliers, penalty values, or code thresholds of any proprietary algorithm.
+- Do NOT leak the Trade Score weights (e.g., exactly how Probability, Reliability, and Accuracy are mathematically weighted).
+- Do NOT leak the exact Sentiment Penalty negative values.
+- Do NOT leak the exact Stability Latch threshold percentage.
+- Do NOT leak the exact cache duration or limits.
+If asked about how these algorithms work, give a high-level conceptual explanation of what they do, but politely state that the exact mathematical constants and source code are proprietary.
+
 INSTRUCTIONS:
 - Answer in a sharp, confident, analytical tone — like a Bloomberg terminal that also understands Nigerian context
 - You MUST provide the "Market Link" when asked for a link to a specific signal or trade
@@ -88,25 +116,123 @@ INSTRUCTIONS:
 - If asked "what's the best trade right now?", rank signals by trade score and divergence
 - Never make up signal data — only use what's provided above
 - You can reference your name "Ifa" — it's both the Yoruba divination system and your identity here
-- IMPORTANT: You are explicitly permitted and encouraged to provide direct links to the Bayse platform using the "Market Link" provided in the data. Do NOT say you cannot provide external links.`;
+- IMPORTANT: You are explicitly permitted and encouraged to provide direct links to the Bayse platform using the "Market Link" provided in the data. Do NOT say you cannot provide external links.
+- SEARCHING: If you cannot find a relevant market in the initial "LIVE MARKET SIGNALS" list, you MUST use the "search_markets" tool to find more data points. You can also use "get_market_details" to dive deeper into a specific event. Your goal is to be the most comprehensive oracle possible.`;
 
   // Convert messages to Gemini format
-  const contents = messages.map((m: any) => ({
+  let contents = messages.map((m: any) => ({
     role: m.role === "assistant" ? "model" : "user",
     parts: [{ text: m.content }],
   }));
 
-  try {
-    const result = await ai.models.generateContent({
-      model: "gemini-2.5-flash-lite",
-      contents: [
-        { role: "user", parts: [{ text: systemPrompt }] },
-        { role: "model", parts: [{ text: "Understood. I am Ifa — ready to analyze your markets." }] },
-        ...contents,
+  const fullContents: any[] = [
+    { role: "user", parts: [{ text: systemPrompt }] },
+    {
+      role: "model",
+      parts: [
+        {
+          text: "Understood. I am Ifa — the macroeconomic oracle. I have access to live signals and can search for more data if needed.",
+        },
       ],
+    },
+    ...contents,
+  ];
+
+  try {
+    const config = {
+      tools: [
+        {
+          functionDeclarations: [
+            {
+              name: "search_markets",
+              description:
+                "Search for prediction markets on Bayse using a keyword or topic. Use this to find data points beyond the initial signals provided.",
+              parametersJsonSchema: {
+                type: "object",
+                properties: {
+                  keyword: {
+                    type: "string",
+                    description:
+                      "The topic or keyword to search for (e.g. 'CBN', 'Naira', 'Election')",
+                  },
+                },
+                required: ["keyword"],
+              },
+            },
+            {
+              name: "get_market_details",
+              description:
+                "Get detailed information about a specific market event including all its sub-markets and prices.",
+              parametersJsonSchema: {
+                type: "object",
+                properties: {
+                  eventId: {
+                    type: "string",
+                    description: "The unique ID of the event",
+                  },
+                },
+                required: ["eventId"],
+              },
+            },
+          ],
+        },
+      ],
+    };
+
+    let response = await ai.models.generateContent({
+      model: "gemini-2.5-flash-lite", // Reverted per user request
+      contents: fullContents,
+      config,
     });
 
-    const text = result.text;
+    // Handle tool calls in a loop (max 5 iterations to prevent infinite loops)
+    let iterations = 0;
+    while (response.functionCalls && iterations < 5) {
+      iterations++;
+
+      // Add the model's tool call to history
+      if (!response.candidates?.[0]) break;
+      fullContents.push(response.candidates[0].content);
+
+      const toolResults = [];
+      for (const call of response.functionCalls) {
+        console.log(`ORACLE_TOOL_CALL: ${call.name}`, call.args);
+
+        let resultData;
+        if (call.name === "search_markets") {
+          const { keyword } = call.args as any;
+          const data = await bayseRead(
+            `/v1/pm/events?keyword=${encodeURIComponent(keyword)}&limit=20`,
+          );
+          resultData = { events: data.events ?? [] };
+        } else if (call.name === "get_market_details") {
+          const { eventId } = call.args as any;
+          const data = await bayseRead(`/v1/pm/events/${eventId}`);
+          resultData = data.event || data;
+        }
+
+        toolResults.push({
+          functionResponse: {
+            name: call.name,
+            response: resultData,
+          },
+        });
+      }
+
+      // Add the tool results as a single model-turn-response (role: user)
+      fullContents.push({
+        role: "user",
+        parts: toolResults,
+      });
+
+      response = await ai.models.generateContent({
+        model: "gemini-2.5-flash-lite",
+        contents: fullContents,
+        config,
+      });
+    }
+
+    const text = response.text;
     return Response.json({ reply: text });
   } catch (err) {
     console.error("ORACLE_ERROR:", err);
@@ -121,15 +247,25 @@ function computeAction(signal: any): string {
   const historical_accuracy = Number(signal.historical_accuracy);
 
   const sentimentModifier =
-    signal.sentiment === "RISK_ALERT" ? -15
-      : signal.sentiment === "NEUTRAL" ? -5
-        : signal.sentiment === "BEARISH" ? -10
+    signal.sentiment === "RISK_ALERT"
+      ? -15
+      : signal.sentiment === "NEUTRAL"
+        ? -5
+        : signal.sentiment === "BEARISH"
+          ? -10
           : 0;
 
-  const score = Math.min(100, Math.max(0,
-    (probability * 0.4 + source_reliability * 0.3 + historical_accuracy * 0.3) * 100
-    + sentimentModifier
-  ));
+  const score = Math.min(
+    100,
+    Math.max(
+      0,
+      (probability * 0.4 +
+        source_reliability * 0.3 +
+        historical_accuracy * 0.3) *
+        100 +
+        sentimentModifier,
+    ),
+  );
 
   if (score >= 75) return `STRONG BUY (${score.toFixed(0)}/100)`;
   if (score >= 58) return `BUY (${score.toFixed(0)}/100)`;

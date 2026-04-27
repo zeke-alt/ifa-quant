@@ -36,17 +36,42 @@ function createSignature(timestamp: number, method: string, path: string, body?:
  * Authenticated Read Operation
  * 
  * Performs a GET request to Bayse using only the Public Key.
+ * Includes a retry mechanism for improved resilience.
  * @param path The endpoint path starting with /v1
  */
-export async function bayseRead(path: string) {
-  const res = await fetch(`${BASE_URL}${path}`, {
-    headers: { 'X-Public-Key': PUBLIC_KEY },
-  });
+export async function bayseRead(path: string, retries = 3) {
+  let lastError;
   
-  // Log the response status for server-side debugging
-  console.log('Bayse Read Status:', res.status);
+  for (let i = 0; i < retries; i++) {
+    try {
+      const res = await fetch(`${BASE_URL}${path}`, {
+        headers: { 'X-Public-Key': PUBLIC_KEY },
+        // Add a signal to manually control timeout if needed, 
+        // but standard fetch uses environment defaults.
+      });
+      
+      console.log(`Bayse Read Status (Attempt ${i + 1}):`, res.status);
+      
+      if (res.ok) return res.json();
+      
+      // If 429 or 5xx, we might want to retry
+      if (res.status === 429 || res.status >= 500) {
+        console.warn(`Bayse returned ${res.status}, retrying...`);
+        await new Promise(r => setTimeout(r, 1000 * (i + 1)));
+        continue;
+      }
+      
+      return res.json();
+    } catch (err: any) {
+      lastError = err;
+      console.error(`Bayse connection attempt ${i + 1} failed:`, err.message);
+      if (i < retries - 1) {
+        await new Promise(r => setTimeout(r, 1000 * (i + 1)));
+      }
+    }
+  }
   
-  return res.json();
+  throw lastError;
 }
 
 /**

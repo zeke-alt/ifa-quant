@@ -3,28 +3,56 @@
  *
  * This route orchestrates the core "intelligence" of the application.
  * It fetches live market data from Bayse, processes it for reliability,
- * and passes it to Vertex AI (Gemini) to generate actionable trading signals.
+ * and passes it to Gemini to generate actionable trading signals.
  */
 
 import { bayseRead } from "@/lib/bayse-server";
 import { GoogleGenAI } from "@google/genai";
+import fs from "fs";
+import path from "path";
+
 console.log("ENV CHECK:", {
   hasGemini: !!process.env.GEMINI_API_KEY,
   hasBayseKey: !!process.env.BAYSE_PUBLIC_KEY,
   hasBayseSecret: !!process.env.BAYSE_SECRET_KEY,
 });
 
-// Initialize Vertex AI with Project & Location from env
+// Initialize Gemini via Vertex AI (uses GCP billing)
 const ai = new GoogleGenAI({
   vertexai: true,
   project: process.env.GOOGLE_CLOUD_PROJECT!,
   location: process.env.GOOGLE_CLOUD_LOCATION!,
 });
 
-// Logic: In-memory cache to prevent redundant AI calls and save on token usage
-// Cache is now currency-specific.
-let cache: Record<string, { data: any; timestamp: number }> = {};
-const CACHE_DURATION = 1000 * 60 * 30;
+const CACHE_DURATION = 1000 * 60 * 30; // 30 minutes
+const CACHE_DIR = path.join(process.cwd(), ".cache");
+
+// ── Disk cache helpers ────────────────────────────────────────────────────────
+
+function diskCachePath(currency: string) {
+  return path.join(CACHE_DIR, `signals-${currency}.json`);
+}
+
+function readDiskCache(currency: string): { data: any; timestamp: number } | null {
+  try {
+    const raw = fs.readFileSync(diskCachePath(currency), "utf-8");
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+
+function writeDiskCache(currency: string, data: any, timestamp: number) {
+  try {
+    if (!fs.existsSync(CACHE_DIR)) fs.mkdirSync(CACHE_DIR, { recursive: true });
+    fs.writeFileSync(diskCachePath(currency), JSON.stringify({ data, timestamp }), "utf-8");
+  } catch (e) {
+    console.warn("DISK_CACHE_WRITE_FAILED:", e);
+  }
+}
+
+// ── In-memory cache (populated from disk on first hit) ────────────────────────
+let memCache: Record<string, { data: any; timestamp: number }> = {};
 
 // Logic: The "Stability Latch"
 // We store a global history of signals to prevent AI jitter.
@@ -38,21 +66,24 @@ export async function GET(req: Request) {
   const eventId = searchParams.get("eventId");
   const currency = searchParams.get("currency") || "USD";
 
-  // Check if we can serve from cache (only for global feed)
-  if (
-    !eventId &&
-    !force &&
-    cache[currency] &&
-    Date.now() - cache[currency].timestamp < CACHE_DURATION
-  ) {
-    console.log(`CACHE_HIT: Serving existing ${currency} intelligence signals`);
-    return Response.json(cache[currency].data);
+  // ── Check memory cache first ──────────────────────────────────────────────
+  if (!eventId && !force) {
+    // 1. Memory
+    if (memCache[currency] && Date.now() - memCache[currency].timestamp < CACHE_DURATION) {
+      console.log(`MEM_CACHE_HIT: Serving ${currency} signals from memory.`);
+      return Response.json(memCache[currency].data);
+    }
+    // 2. Disk — survives server restarts
+    const disk = readDiskCache(currency);
+    if (disk && Date.now() - disk.timestamp < CACHE_DURATION) {
+      console.log(`DISK_CACHE_HIT: Serving ${currency} signals from disk (${Math.round((Date.now() - disk.timestamp) / 60000)}m old).`);
+      memCache[currency] = disk; // promote to memory
+      return Response.json(disk.data);
+    }
   }
 
   try {
     let events: any[] = [];
-    // In your GET handler, right after you get events, add:
-    console.log("[EVENT SAMPLE]", JSON.stringify(events[0], null, 2));
 
     if (eventId) {
       console.log(
@@ -67,9 +98,13 @@ export async function GET(req: Request) {
         `ANALYSIS_START: Fetching live markets (${currency}) from Bayse...`,
       );
       const data = await bayseRead(
-        `/v1/pm/events?status=open&limit=10&size=10&currency=${currency}`,
+        `/v1/pm/events?status=open&limit=30&size=30&currency=${currency}`,
       );
       events = data.events ?? [];
+    }
+
+    if (events.length > 0) {
+      console.log("[EVENT SAMPLE]", JSON.stringify(events[0], null, 2));
     }
 
     if (events.length === 0) {
@@ -113,18 +148,33 @@ export async function GET(req: Request) {
       };
     });
 
-    // Step 4: Construct the AI Prompt (The Alpha Filter)
+    // Step 4: Fetch Live News Context
+    let recentNews: string[] = [];
+    try {
+      const { fetchMacroNews } = await import("@/lib/news-fetcher");
+      recentNews = await fetchMacroNews(8);
+    } catch (err) {
+      console.warn("Could not fetch news, continuing without it.");
+    }
+    
+    const newsContext = recentNews.length > 0 
+      ? `\nLATEST MACRO NEWS HEADLINES (Use to adjust sentiment/conviction):\n${recentNews.map(n => `- ${n}`).join("\n")}\n` 
+      : "";
+
+    // Step 5: Construct the AI Prompt (The Alpha Filter)
     const prompt = `You are an elite macro analyst. Analyze these live prediction markets.
 For each EVENT, you must identify and return ONLY the single most mispriced SELECTION (the "Alpha" trade).
 
 STRICT RULES:
 1. One Signal per Event: Even if an event has 10 markets, you only return ONE signal for that event—the one with the largest gap between your assessed probability and the market price.
-2. Ignore Low-Alpha Trades: If a selection has no meaningful mispricing, do not generate a signal for it.
+2. Demo Mode (Provide 5 to 6 Signals): For the dashboard display, provide exactly 5 to 6 high-conviction trades. Do not filter too aggressively, but prioritize the best opportunities.
 3. Unique Headline: The headline must be specific to the SELECTION you chose, not just the event title.
 4. Reliability Fusion: Your "source_reliability" MUST be a fusion of your logical conviction AND the provided "market_math". If liquidity_quality is low (< 0.3), you MUST downgrade your reliability score regardless of how sure your logic is. Mention this in your logic.
+5. News Context: Use the provided LATEST MACRO NEWS to inform your market sentiment and reasoning. If news directly relates to a market, reference it in your "logic".
 
 LIVE MARKET DATA WITH MATH BENCHMARKS:
 ${JSON.stringify(marketsWithMath, null, 2)}
+${newsContext}
 
 Return a JSON object:
 {
@@ -147,6 +197,7 @@ Return a JSON object:
       "category": <copy exact>,
       "feeRate": <copy exact>,
       "yesProbability": <copy exact price>
+      "liquidity": <copy the liquidity field exactly from the market data>,
     }
   ]
 }
@@ -155,10 +206,13 @@ Find the alpha. Focus on Nigerian/African macro context.`;
 
     // Step 5: Invoke Vertex AI
     const result = await ai.models.generateContent({
-      model: "gemini-2.5-flash",
-      contents: prompt,
-      config: { responseMimeType: "application/json" },
-    });
+  model: "gemini-2.5-flash-lite", 
+  contents: prompt,
+  config: { 
+    responseMimeType: "application/json",
+    maxOutputTokens: 4096, 
+  },
+});
 
     const responseText = result.text;
     if (!responseText) throw new Error("Vertex AI returned no text");
@@ -200,20 +254,26 @@ Find the alpha. Focus on Nigerian/African macro context.`;
       return { ...s, market_question: s.marketTitle };
     });
 
-    // Update Cache
-    cache[currency] = { data: signals, timestamp: Date.now() };
+    // Update both memory and disk cache
+    const timestamp = Date.now();
+    memCache[currency] = { data: signals, timestamp };
+    writeDiskCache(currency, signals, timestamp);
     console.log(
-      `VERTEX_SUCCESS: Generated ${signals.signals.length} unique alpha signals for ${currency}.`,
+      `GEMINI_SUCCESS: Generated ${signals.signals.length} unique alpha signals for ${currency}. Written to disk.`,
     );
 
     return Response.json(signals);
   } catch (err) {
-    // Logic: Fallback to stale cache if AI call fails, ensuring uptime.
-    if (cache[currency]) {
-      console.warn(
-        `VERTEX_FAILED: Serving stale ${currency} cache as fallback.`,
-      );
-      return Response.json(cache[currency].data);
+    console.error("GEMINI_ACTUAL_ERROR:", err);
+    // Fallback chain: memory → disk → error
+    if (memCache[currency]) {
+      console.warn(`GEMINI_FAILED: Serving stale ${currency} memory cache.`);
+      return Response.json(memCache[currency].data);
+    }
+    const disk = readDiskCache(currency);
+    if (disk) {
+      console.warn(`GEMINI_FAILED: Serving stale ${currency} disk cache.`);
+      return Response.json(disk.data);
     }
     console.error("ANALYZE_ERROR:", err);
     return Response.json({ error: "Analysis failed" }, { status: 500 });

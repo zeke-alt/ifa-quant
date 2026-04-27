@@ -7,7 +7,7 @@ import { LayoutDashboard, Radio, LineChart, Wallet, Zap, Coins, Menu, X } from '
 const NAV_ITEMS = [
   { icon: <LayoutDashboard size={18} />, label: "Market Terminal", href: "/" },
   { icon: <Radio size={18} />, label: "Signal Feed", href: "/signals" },
-  { icon: <LineChart size={18} />, label: "Quant Lab", href: "/quant" },
+  { icon: <LineChart size={18} />, label: "Quant Lab", href: "/quant-lab" },
   { icon: <Wallet size={18} />, label: "Portfolio", href: "/portfolio" },
   { icon: <Zap size={18} />, label: "Ifa Oracle", href: "/oracle" },
 ];

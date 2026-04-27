@@ -13,7 +13,7 @@ import { bayseWrite } from "@/lib/bayse-server";
 
 export async function POST(
   req: Request,
-  { params }: { params: { eventId: string; marketId: string } }
+  { params }: { params: { eventId: string; marketId: string } },
 ) {
   const { eventId, marketId } = params;
 
@@ -29,7 +29,7 @@ export async function POST(
   if (!side || !outcome || !amount) {
     return NextResponse.json(
       { message: "Missing required fields: side, outcome, amount" },
-      { status: 400 }
+      { status: 400 },
     );
   }
 
@@ -43,16 +43,15 @@ export async function POST(
     const data = await bayseWrite("POST", baysePath, requestBody);
 
     if (data?.message && !data?.id) {
-      return NextResponse.json(
-        { message: data.message },
-        { status: 400 }
-      );
+      return NextResponse.json({ message: data.message }, { status: 400 });
     }
 
     return NextResponse.json(data);
   } catch (err) {
     console.error("[/api/bayse/orders] Upstream error:", err);
-    return NextResponse.json({ message: "Failed to reach Bayse API" }, { status: 502 });
+    return NextResponse.json(
+      { message: "Failed to reach Bayse API" },
+      { status: 502 },
+    );
   }
 }
-

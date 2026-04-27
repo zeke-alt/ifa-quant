@@ -55,4 +55,6 @@ export interface MacroSignal {
 
   /** Bayse Outcome IDs */
   noOutcomeId: string;
+
+  liquidity?: number;
 }

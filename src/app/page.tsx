@@ -4,6 +4,7 @@ import Sidebar from '@/components/layout/Sidebar';
 import MarketCard from '@/features/bayse-trading/MarketCard';
 import SignalCard from '@/features/macro-feed/SignalCard';
 import ConfidenceGauge from '@/components/charts/ConfidenceGauge';
+import OjaScore from '@/components/charts/OjaScore';
 import SystemLog from '@/components/layout/SystemLog';
 import { analyzeMarkets } from '@/lib/api-client';
 import { MacroSignal } from '@/types/macro';
@@ -180,7 +181,7 @@ function IntelligenceTab({ signalsData }: { signalsData: SignalsData | null }) {
       <div className="bg-slate-900/80 border border-slate-800 p-8 rounded-3xl backdrop-blur-xl">
         <h2 className="text-xs font-black text-slate-500 uppercase tracking-widest mb-8">AI Synthesis</h2>
         <ConfidenceGauge value={globalConfidence} />
-        <div className="mt-8 pt-8 border-t border-slate-800/50 space-y-4">
+        <div className="mt-8 pt-8 border-t  border-slate-800/50 space-y-4">
           <div className="flex justify-between text-[10px] font-mono">
             <span className="text-slate-500">ACTIVE_SIGNALS</span>
             <span className="text-white">{signalsData?.active_signals ?? "—"}</span>
@@ -214,15 +215,18 @@ function IntelligenceTab({ signalsData }: { signalsData: SignalsData | null }) {
               );
             })}
           </div>
+          {/* Oja Score */}
+          <OjaScore signals={signalsData?.signals ?? []} />
         </div>
       </div>
+      
 
       {/* System Log */}
       <div className="space-y-6">
         <SystemLog />
         <div className="space-y-4">
           <h2 className="text-xs font-black text-slate-500 uppercase tracking-widest">Recent Logic</h2>
-          {signalsData?.signals.slice(0, 3).map((s, i) => (
+          {signalsData?.signals.map((s, i) => (
             <SignalCard key={i} signal={s} />
           ))}
         </div>
@@ -601,7 +605,9 @@ export default function Dashboard() {
                 )}
                 {/* Intelligence Tab */}
                 {activeTab === 'intelligence' && (
+                  <>
                   <IntelligenceTab signalsData={signalsData} />
+                  </>
                 )}
               </div>
 
@@ -609,6 +615,7 @@ export default function Dashboard() {
                 <div className="hidden lg:block lg:col-span-4 sticky top-12 h-fit space-y-8">
                 <div className="bg-slate-900/80 border border-slate-800 p-8 rounded-3xl backdrop-blur-xl">
                   <h2 className="text-xs font-black text-slate-500 uppercase tracking-widest mb-8">AI Synthesis</h2>
+                  <OjaScore signals={signalsData?.signals ?? []} />
                   <ConfidenceGauge value={globalConfidence} />
                   <div className="mt-8 pt-8 border-t border-slate-800/50 space-y-4">
                     <div className="flex justify-between text-[10px] font-mono">
@@ -624,7 +631,7 @@ export default function Dashboard() {
                 <SystemLog />
                 <div className="space-y-4">
                   <h2 className="text-xs font-black text-slate-500 uppercase tracking-widest ml-2">Recent Logic</h2>
-                  {signalsData?.signals.slice(0, 3).map((s, i) => (
+                  {signalsData?.signals.map((s, i) => (
                     <SignalCard key={i} signal={s} />
                   ))}
                 </div>

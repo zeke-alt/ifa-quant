@@ -125,7 +125,7 @@ export default function DivergenceLine({ aiProb, eventId, marketId, marketPrice 
 
   return (
     <div className="h-20 w-full relative">
-      <ResponsiveContainer width="100%" height="100%">
+      <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
         <LineChart data={data} margin={{ top: 5, right: 10, left: 10, bottom: 5 }}>
           <XAxis dataKey="time" hide />
           <YAxis domain={[domainMin, domainMax]} hide />
