@@ -32,7 +32,7 @@ import {
   Info
 } from "lucide-react";
 
-// ─── Types ────────────────────────────────────────────────────────────────────
+
 
 interface Market {
   id: string;
@@ -70,7 +70,7 @@ interface Strategy {
   holdDays: number;
 }
 
-// ─── Backtesting Engine ───────────────────────────────────────────────────────
+
 
 function runBacktest(
   priceHistory: PricePoint[],
@@ -160,7 +160,7 @@ function runBacktest(
   };
 }
 
-// ─── Custom Tooltip ───────────────────────────────────────────────────────────
+
 
 const CustomTooltip = ({ active, payload, label }: any) => {
   if (active && payload?.length) {
@@ -178,7 +178,7 @@ const CustomTooltip = ({ active, payload, label }: any) => {
   return null;
 };
 
-// ─── Stat Card ────────────────────────────────────────────────────────────────
+
 
 function StatCard({
   label,
@@ -215,7 +215,7 @@ function StatCard({
   );
 }
 
-// ─── Main Page ────────────────────────────────────────────────────────────────
+
 
 export default function QuantLabPage() {
   const [markets, setMarkets] = useState<Market[]>([]);
@@ -329,7 +329,7 @@ export default function QuantLabPage() {
     setStrategy({ direction: "BUY", entryThreshold: 0.3, exitThreshold: 0.7, holdDays: 14 });
   };
 
-  // ─── Render ───────────────────────────────────────────────────────────────
+
 
   return (
     <div className="min-h-screen bg-background text-foreground transition-all duration-300">

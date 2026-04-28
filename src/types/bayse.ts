@@ -1,4 +1,4 @@
-// types/bayse.ts
+
 export interface BayseEvent {
   id: string;
   title: string;

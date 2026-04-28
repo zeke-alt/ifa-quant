@@ -1,12 +1,17 @@
 import { GoogleGenAI } from "@google/genai";
 import { bayseRead } from "@/lib/bayse-server";
 
-// Initialize Gemini via Vertex AI (uses GCP billing)
-const ai = new GoogleGenAI({
-  vertexai: true,
-  project: process.env.GOOGLE_CLOUD_PROJECT!,
-  location: "global",
-});
+let _ai: GoogleGenAI | null = null;
+function getAI() {
+  if (!_ai) {
+    _ai = new GoogleGenAI({
+      vertexai: true,
+      project: process.env.GOOGLE_CLOUD_PROJECT!,
+      location: "global",
+    });
+  }
+  return _ai;
+}
 
 export async function POST(req: Request) {
   const { messages, signals, tradeHistory } = await req.json();
@@ -179,7 +184,7 @@ INSTRUCTIONS:
       ],
     };
 
-    let response = await ai.models.generateContent({
+    let response = await getAI().models.generateContent({
       model: "gemini-2.5-flash-lite", // Reverted per user request
       contents: fullContents,
       config,
@@ -225,7 +230,7 @@ INSTRUCTIONS:
         parts: toolResults,
       });
 
-      response = await ai.models.generateContent({
+      response = await getAI().models.generateContent({
         model: "gemini-2.5-flash-lite",
         contents: fullContents,
         config,

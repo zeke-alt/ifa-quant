@@ -1,4 +1,4 @@
-// components/charts/OjaScore.tsx
+
 'use client';
 import { useMemo } from 'react';
 import { MacroSignal } from '@/types/macro';
@@ -7,7 +7,7 @@ interface OjaScoreProps {
   signals: MacroSignal[];
 }
 
-// ─── Computation ─────────────────────────────────────────────────────────────
+
 
 function computeOjaScore(signals: MacroSignal[]) {
   if (!signals.length) return { score: 0, label: 'DEAD', color: 'text-slate-500', ringColor: '#334155', glowColor: 'transparent', components: null, confidenceGated: false };
@@ -104,7 +104,7 @@ const COMPONENTS = [
   { key: 'confidence' as const, label: 'Confidence',  weight: '15%', trackColor: 'bg-green-500/80'  },
 ] as const;
 
-// ─── Component ───────────────────────────────────────────────────────────────
+
 
 export default function OjaScore({ signals }: OjaScoreProps) {
   const { score, label, color, ringColor, glowColor, confidenceGated, components } = useMemo(

@@ -19,7 +19,7 @@ import QuoteDrawer from '@/components/ui/QuoteDrawer';
 import { useBookmarks } from '@/hooks/useBookmarks';
 import { cn } from '@/lib/utils';
 
-// ── Sentiment config ────────────────────────────────────────────────────────
+
 const SENTIMENT_CONFIG = {
   BULLISH: { icon: TrendingUp, color: 'text-green-500', bg: 'bg-green-500/10', label: 'BULLISH' },
   BEARISH: { icon: TrendingDown, color: 'text-red-500', bg: 'bg-red-500/10', label: 'BEARISH' },
@@ -27,7 +27,7 @@ const SENTIMENT_CONFIG = {
   NEUTRAL: { icon: Minus, color: 'text-muted-foreground', bg: 'bg-secondary', label: 'NEUTRAL' },
 };
 
-// ── Trade score engine ──────────────────────────────────────────────────────
+
 /**
  * computeTradeScore
  * -----------------
@@ -91,7 +91,7 @@ function computeTradeScore(signal: MacroSignal) {
   return { score, action, actionColor, actionBg, reasoning };
 }
 
-// ── LogicText ───────────────────────────────────────────────────────────────
+
 function LogicText({ text }: { text: string }) {
   const [expanded, setExpanded] = useState(false);
   return (
@@ -109,7 +109,7 @@ function LogicText({ text }: { text: string }) {
   );
 }
 
-// ── QuoteModal ──────────────────────────────────────────────────────────────
+
 /**
  * Wraps QuoteDrawer in a backdrop overlay.
  * Closes on backdrop click or Escape key.
@@ -229,7 +229,7 @@ function QuoteModal({
   );
 }
 
-// ── MarketCard ──────────────────────────────────────────────────────────────
+
 export default function MarketCard({ signal, currency = 'USD' }: { signal: MacroSignal, currency?: 'USD' | 'NGN' }) {
   const [expanded, setExpanded] = useState(false);
   // showQuote lives here, inside the component — not at module scope

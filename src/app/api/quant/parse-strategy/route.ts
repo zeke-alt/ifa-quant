@@ -1,11 +1,17 @@
 import { GoogleGenAI } from "@google/genai";
 import { NextResponse } from "next/server";
 
-const ai = new GoogleGenAI({
-  vertexai: true,
-  project: process.env.GOOGLE_CLOUD_PROJECT!,
-  location: process.env.GOOGLE_CLOUD_LOCATION!,
-});
+let _ai: GoogleGenAI | null = null;
+function getAI() {
+  if (!_ai) {
+    _ai = new GoogleGenAI({
+      vertexai: true,
+      project: process.env.GOOGLE_CLOUD_PROJECT!,
+      location: process.env.GOOGLE_CLOUD_LOCATION!,
+    });
+  }
+  return _ai;
+}
 
 export async function POST(req: Request) {
   try {
@@ -51,7 +57,7 @@ export async function POST(req: Request) {
       userPrompt = prompt;
     }
 
-    const result = await ai.models.generateContent({
+    const result = await getAI().models.generateContent({
       model: "gemini-2.5-flash-lite",
       contents: [{ role: "user", parts: [{ text: `${systemInstruction}\n\nUser Input: "${userPrompt}"` }] }],
       config: {

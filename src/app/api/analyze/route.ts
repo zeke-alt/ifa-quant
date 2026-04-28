@@ -17,17 +17,22 @@ console.log("ENV CHECK:", {
   hasBayseSecret: !!process.env.BAYSE_SECRET_KEY,
 });
 
-// Initialize Gemini via Vertex AI (uses GCP billing)
-const ai = new GoogleGenAI({
-  vertexai: true,
-  project: process.env.GOOGLE_CLOUD_PROJECT!,
-  location: process.env.GOOGLE_CLOUD_LOCATION!,
-});
+let _ai: GoogleGenAI | null = null;
+function getAI() {
+  if (!_ai) {
+    _ai = new GoogleGenAI({
+      vertexai: true,
+      project: process.env.GOOGLE_CLOUD_PROJECT!,
+      location: process.env.GOOGLE_CLOUD_LOCATION!,
+    });
+  }
+  return _ai;
+}
 
 const CACHE_DURATION = 1000 * 60 * 30; // 30 minutes
 const CACHE_DIR = path.join(process.cwd(), ".cache");
 
-// ── Disk cache helpers ────────────────────────────────────────────────────────
+
 
 function diskCachePath(currency: string) {
   return path.join(CACHE_DIR, `signals-${currency}.json`);
@@ -51,7 +56,7 @@ function writeDiskCache(currency: string, data: any, timestamp: number) {
   }
 }
 
-// ── In-memory cache (populated from disk on first hit) ────────────────────────
+
 let memCache: Record<string, { data: any; timestamp: number }> = {};
 
 // Logic: The "Stability Latch"
@@ -66,7 +71,7 @@ export async function GET(req: Request) {
   const eventId = searchParams.get("eventId");
   const currency = searchParams.get("currency") || "USD";
 
-  // ── Check memory cache first ──────────────────────────────────────────────
+
   if (!eventId && !force) {
     // 1. Memory
     if (memCache[currency] && Date.now() - memCache[currency].timestamp < CACHE_DURATION) {
@@ -205,7 +210,7 @@ Return a JSON object:
 Find the alpha. Focus on Nigerian/African macro context.`;
 
     // Step 5: Invoke Vertex AI
-    const result = await ai.models.generateContent({
+    const result = await getAI().models.generateContent({
       model: "gemini-2.5-flash-lite",
       contents: prompt,
       config: {

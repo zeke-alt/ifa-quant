@@ -14,7 +14,7 @@ import {
   AlertTriangle
 } from "lucide-react";
 
-// ─── Types ────────────────────────────────────────────────────────────────────
+
 
 interface QuoteDrawerProps {
   eventId: string;
@@ -51,14 +51,14 @@ interface OrderResponse {
   status: "pending" | "open" | "partial_filled" | "filled" | "cancelled" | "rejected";
 }
 
-// ─── Constants ────────────────────────────────────────────────────────────────
+
 
 // Bayse fee formula: fee = feeRate × C × P × max(1 − P, 0.5)
 // We surface this for educational context in the UI (not used for calculation —
 // we always display the server-returned fee from the quote response).
 const DEBOUNCE_MS = 400;
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
+
 
 /** Format a number as USD with 2 decimal places */
 const usd = (n: number) => `$${n.toFixed(2)}`;
@@ -76,7 +76,7 @@ function useDebounce<T>(value: T, delay: number): T {
   return debounced;
 }
 
-// ─── Component ────────────────────────────────────────────────────────────────
+
 
 export default function QuoteDrawer({
   eventId,
@@ -226,7 +226,7 @@ export default function QuoteDrawer({
       ? ((quote.price - quote.currentMarketPrice) / quote.currentMarketPrice) * 100
       : null;
 
-  // ─── Render ────────────────────────────────────────────────────────────────
+
 
   // If order succeeded, show confirmation state
   if (orderResult) {

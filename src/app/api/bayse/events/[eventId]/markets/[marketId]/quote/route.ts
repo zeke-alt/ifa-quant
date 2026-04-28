@@ -65,6 +65,6 @@ export async function POST(
   }
 }
 
-// ─── GET: forward orders route (same file handles both via route segments) ────
+
 // Orders live at /api/bayse/events/[eventId]/markets/[marketId]/orders
 // — that's a sibling route file, not this one.

@@ -13,9 +13,9 @@ import { bayseWrite } from "@/lib/bayse-server";
 
 export async function POST(
   req: Request,
-  { params }: { params: { eventId: string; marketId: string } },
+  { params }: { params: Promise<{ eventId: string; marketId: string }> },
 ) {
-  const { eventId, marketId } = params;
+  const { eventId, marketId } = await params;
 
   let body: any;
   try {

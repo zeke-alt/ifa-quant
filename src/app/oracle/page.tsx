@@ -201,11 +201,11 @@ export default function OraclePage() {
       <Sidebar />
 
       <main className={cn(
-        "flex flex-col h-screen transition-all duration-500 ease-in-out",
+        "flex flex-col h-screen transition-all duration-500 ease-in-out pt-16 lg:pt-0",
         isSidebarCollapsed ? "lg:ml-20" : "lg:ml-64"
       )}>
         {/* Header */}
-        <div className="border-b border-border px-6 py-4 flex items-center justify-between bg-background/80 backdrop-blur-xl sticky top-16 lg:top-0 z-10">
+        <div className="shrink-0 border-b border-border px-6 py-4 flex items-center justify-between bg-background/80 backdrop-blur-xl z-10">
           <div className="flex items-center gap-3">
             <div className="relative">
               <div className="w-10 h-10 rounded-2xl bg-linear-to-br from-orange-500 to-amber-600 flex items-center justify-center text-lg font-black text-white shadow-lg shadow-orange-500/20">
@@ -236,7 +236,7 @@ export default function OraclePage() {
         </div>
 
         {/* Messages */}
-        <div className="flex-1 overflow-y-auto px-4 md:px-12 py-12 space-y-8 no-scrollbar">
+        <div className="flex-1 overflow-y-auto px-4 md:px-12 py-6 space-y-8 no-scrollbar">
           {messages.map((msg, i) => (
             <div
               key={i}
@@ -306,7 +306,7 @@ export default function OraclePage() {
         )}
 
         {/* Input */}
-        <div className="border-t border-border px-4 md:px-12 py-6 bg-background/80 backdrop-blur-xl">
+        <div className="shrink-0 border-t border-border px-4 md:px-12 pt-6 pb-12 md:pb-6 bg-background/80 backdrop-blur-xl">
           <div className="flex gap-4 items-end max-w-4xl mx-auto">
             <div className="flex-1 bg-card border border-border focus-within:border-primary/50 focus-within:ring-4 focus-within:ring-primary/5 rounded-2xl px-5 py-4 transition-all shadow-sm">
               <textarea
