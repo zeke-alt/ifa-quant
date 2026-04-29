@@ -2,6 +2,7 @@
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import CowrieIcon from '@/components/ui/CowrieIcon';
 import { 
   LayoutDashboard, 
   LineChart, 
@@ -90,7 +91,8 @@ export default function Sidebar() {
         {/* Logo Section */}
         <div className={cn("flex items-center gap-3 p-6 mb-8 border-b border-border", isSidebarCollapsed && "justify-center px-0")}>
           <div className="min-w-[32px] w-8 h-8 bg-card border border-primary/40 flex items-center justify-center transition-transform hover:scale-105">
-            <Activity size={18} className="text-primary" />
+            {/* <Activity size={18} className="text-primary" /> */}
+            <CowrieIcon />
           </div>
           {!isSidebarCollapsed && (
             <span className="text-sm font-bold text-foreground tracking-[0.3em] uppercase italic whitespace-nowrap">

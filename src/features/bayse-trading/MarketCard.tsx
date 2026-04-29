@@ -22,6 +22,7 @@ import DivergenceLine from '@/components/charts/DivergenceLine';
 import QuoteDrawer from '@/components/ui/QuoteDrawer';
 import { useBookmarks } from '@/hooks/useBookmarks';
 import { cn } from '@/lib/utils';
+import CowrieIcon from '@/components/ui/CowrieIcon';
 
 // --- SENTIMENT & TRADE LOGIC ---
 
@@ -96,10 +97,10 @@ export default function MarketCard({ signal, currency = 'USD' }: { signal: Macro
         {/* Dynamic Color Highlight on Hover */}
         <div className={cn(
           "absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-500 pointer-events-none",
-          signal.sentiment === 'BULLISH' ? 'bg-gradient-to-br from-emerald-500/10 via-transparent to-transparent' :
-          signal.sentiment === 'BEARISH' ? 'bg-gradient-to-br from-rose-500/10 via-transparent to-transparent' :
-          signal.sentiment === 'RISK_ALERT' ? 'bg-gradient-to-br from-orange-500/10 via-transparent to-transparent' :
-          'bg-gradient-to-br from-blue-500/10 via-transparent to-transparent'
+          signal.sentiment === 'BULLISH' ? 'bg-linear-to-br from-emerald-500/10 via-transparent to-transparent' :
+          signal.sentiment === 'BEARISH' ? 'bg-linear-to-br from-rose-500/10 via-transparent to-transparent' :
+          signal.sentiment === 'RISK_ALERT' ? 'bg-linear-to-br from-orange-500/10 via-transparent to-transparent' :
+          'bg-linear-to-br from-blue-500/10 via-transparent to-transparent'
         )} />
 
         <div className="p-5 flex flex-col flex-1">
@@ -117,7 +118,9 @@ export default function MarketCard({ signal, currency = 'USD' }: { signal: Macro
             <div className="text-right font-mono">
               <p className="text-[10px] text-muted-foreground uppercase mb-1 font-bold tracking-widest">AI PREDICTION</p>
               <p className="text-3xl font-bold text-foreground leading-none tracking-tighter group-hover:text-blue-500 transition-colors">{prob}%</p>
-              <p className="text-[9px] text-muted-foreground mt-1 uppercase font-bold">COST: <span className="text-foreground/80">{currency === 'NGN' ? '₦' : '$'}{currency === 'NGN' ? (signal.yesProbability * 100).toFixed(2) : signal.yesProbability.toFixed(2)}</span></p>
+              <p className="text-[9px] text-muted-foreground mt-1 uppercase font-bold flex items-center gap-1 justify-end">
+                COST: <span className="text-foreground/80 flex items-center gap-0.5">{currency === 'NGN' ? '₦' : '$'}{currency === 'NGN' ? (signal.yesProbability * 100).toFixed(2) : signal.yesProbability.toFixed(2)}</span>
+              </p>
             </div>
           </div>
 
@@ -132,7 +135,14 @@ export default function MarketCard({ signal, currency = 'USD' }: { signal: Macro
                </p>
                <ArrowUpRight size={12} className="text-muted-foreground/60 group-hover/q:text-primary transition-colors shrink-0" />
             </div>
-            <span className="text-[9px] font-bold text-muted-foreground/80 uppercase tracking-widest">{signal.category}</span>
+            <div className="flex flex-col items-end gap-1">
+              <span className="text-[9px] font-bold text-muted-foreground/80 uppercase tracking-widest">{signal.category}</span>
+              {signal.endDate && (
+                <span className="text-[7px] font-mono font-bold text-muted-foreground/60 uppercase">
+                  DEADLINE: {new Date(signal.endDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                </span>
+              )}
+            </div>
           </div>
 
           {/* Headline & Selection */}

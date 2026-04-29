@@ -4,6 +4,12 @@
  * This route orchestrates the core "intelligence" of the application.
  * It fetches live market data from Bayse, processes it for reliability,
  * and passes it to Gemini to generate actionable trading signals.
+ *
+ * v2 Changes:
+ * - USDNGN Sensitivity Filter: News headlines are scored and ranked by their
+ *   historical relevance to USDNGN movement before being passed to the AI.
+ * - Expanded Data Sources: Live FX rates, oil prices, CBN rates, and fear/greed
+ *   index are fetched and injected into the prompt as structured macro context.
  */
 
 import { bayseRead } from "@/lib/bayse-server";
@@ -32,8 +38,6 @@ function getAI() {
 const CACHE_DURATION = 1000 * 60 * 30; // 30 minutes
 const CACHE_DIR = path.join(process.cwd(), ".cache");
 
-
-
 function diskCachePath(currency: string) {
   return path.join(CACHE_DIR, `signals-${currency}-v2.json`);
 }
@@ -56,7 +60,6 @@ function writeDiskCache(currency: string, data: any, timestamp: number) {
   }
 }
 
-
 let memCache: Record<string, { data: any; timestamp: number }> = {};
 
 // Logic: The "Stability Latch"
@@ -65,6 +68,262 @@ let memCache: Record<string, { data: any; timestamp: number }> = {};
 const STABILITY_THRESHOLD = 0.04;
 let signalHistory: Record<string, any> = {};
 
+// ─────────────────────────────────────────────
+// USDNGN SENSITIVITY FILTER
+// Headlines are scored by how likely they are to move the USDNGN pair.
+// This prevents low-relevance news from polluting confidence scores.
+// ─────────────────────────────────────────────
+const USDNGN_SENSITIVITY_WEIGHTS: { keywords: string[]; weight: number }[] = [
+  {
+    keywords: ["cbn", "central bank of nigeria", "monetary policy committee", "fx intervention", "naira devaluation", "naira", "fx window", "official rate", "parallel market"],
+    weight: 1.0,
+  },
+  {
+    keywords: ["federal reserve", "fed rate", "fomc", "us interest rate", "powell", "rate hike", "rate cut", "us inflation"],
+    weight: 0.95,
+  },
+  {
+    keywords: ["oil price", "brent crude", "opec", "nnpc", "crude production", "petroleum", "oil output"],
+    weight: 0.9,
+  },
+  {
+    keywords: ["foreign reserve", "external reserve", "imf nigeria", "world bank nigeria", "nigeria debt", "eurobond", "nigeria loan"],
+    weight: 0.85,
+  },
+  {
+    keywords: ["nigeria inflation", "cpi nigeria", "nbs report", "nigeria gdp", "trade balance nigeria", "current account"],
+    weight: 0.75,
+  },
+  {
+    keywords: ["dollar index", "dxy", "em currencies", "emerging market", "global risk", "usd strength"],
+    weight: 0.65,
+  },
+  {
+    keywords: ["africa", "nigeria", "lagos", "abuja", "west africa", "ecowas", "subsaharan"],
+    weight: 0.5,
+  },
+];
+
+const DEFAULT_SENSITIVITY_WEIGHT = 0.3;
+
+function getUSDNGNSensitivity(headline: string): number {
+  const lower = headline.toLowerCase();
+  for (const { keywords, weight } of USDNGN_SENSITIVITY_WEIGHTS) {
+    if (keywords.some((k) => lower.includes(k))) return weight;
+  }
+  return DEFAULT_SENSITIVITY_WEIGHT;
+}
+
+// ─────────────────────────────────────────────
+// EXPANDED DATA SOURCES
+// These fetch live macro data points to give the AI more context
+// beyond just prediction market prices and news headlines.
+// ─────────────────────────────────────────────
+
+interface MacroDataPoint {
+  label: string;
+  value: string | number;
+  source: string;
+  note?: string;
+}
+
+/**
+ * Fetches live FX rates relevant to Nigeria from exchangerate-api (free tier).
+ * Targets: USDNGN, EURUSD, DXY proxy pairs.
+ */
+async function fetchFXRates(): Promise<MacroDataPoint[]> {
+  try {
+    const res = await fetch(
+      "https://open.er-api.com/v6/latest/USD",
+      { next: { revalidate: 1800 } } // Next.js cache hint
+    );
+    if (!res.ok) throw new Error(`FX API status: ${res.status}`);
+    const data = await res.json();
+    const rates = data.rates ?? {};
+
+    const points: MacroDataPoint[] = [];
+
+    if (rates.NGN) {
+      points.push({
+        label: "USDNGN (Official/Market Rate)",
+        value: parseFloat(rates.NGN.toFixed(2)),
+        source: "open.er-api.com",
+        note: "Spot rate. Parallel market may differ by 5-15%.",
+      });
+    }
+    if (rates.EUR) {
+      points.push({
+        label: "EURUSD",
+        value: parseFloat((1 / rates.EUR).toFixed(4)),
+        source: "open.er-api.com",
+      });
+    }
+    if (rates.GBP) {
+      points.push({
+        label: "GBPUSD",
+        value: parseFloat((1 / rates.GBP).toFixed(4)),
+        source: "open.er-api.com",
+      });
+    }
+    if (rates.ZAR) {
+      points.push({
+        label: "USDZAR (EM peer proxy)",
+        value: parseFloat(rates.ZAR.toFixed(2)),
+        source: "open.er-api.com",
+        note: "ZAR often correlates with NGN under EM risk-off moves.",
+      });
+    }
+
+    return points;
+  } catch (err) {
+    console.warn("FX_FETCH_FAILED:", err);
+    return [];
+  }
+}
+
+/**
+ * Fetches Brent crude oil price from a public commodities API.
+ * Oil is the single biggest driver of Nigeria's FX reserves.
+ */
+async function fetchOilPrice(): Promise<MacroDataPoint[]> {
+  try {
+    // Using CoinGecko as a free proxy isn't ideal for oil —
+    // we use a lightweight public price API instead.
+    const res = await fetch(
+      "https://api.allorigins.win/raw?url=" +
+        encodeURIComponent("https://query1.finance.yahoo.com/v8/finance/chart/BZ%3DF?interval=1d&range=1d"),
+      { next: { revalidate: 1800 } }
+    );
+    if (!res.ok) throw new Error(`Oil API status: ${res.status}`);
+    const data = await res.json();
+    const price =
+      data?.chart?.result?.[0]?.meta?.regularMarketPrice;
+
+    if (!price) throw new Error("No oil price in response");
+
+    return [
+      {
+        label: "Brent Crude (USD/barrel)",
+        value: parseFloat(price.toFixed(2)),
+        source: "Yahoo Finance / BZ=F",
+        note: "Critical for NNPC revenue and CBN FX supply. Nigeria budget benchmark ~$65-75/bbl.",
+      },
+    ];
+  } catch (err) {
+    console.warn("OIL_FETCH_FAILED:", err);
+    return [];
+  }
+}
+
+/**
+ * Fetches BTC/ETH prices as a crypto risk-sentiment proxy.
+ * Relevant because crypto is a significant parallel FX channel in Nigeria.
+ */
+async function fetchCryptoPrices(): Promise<MacroDataPoint[]> {
+  try {
+    const res = await fetch(
+      "https://api.coingecko.com/api/v3/simple/price?ids=bitcoin,ethereum&vs_currencies=usd&include_24hr_change=true",
+      { next: { revalidate: 1800 } }
+    );
+    if (!res.ok) throw new Error(`Crypto API status: ${res.status}`);
+    const data = await res.json();
+
+    const points: MacroDataPoint[] = [];
+
+    if (data.bitcoin?.usd) {
+      points.push({
+        label: "Bitcoin (USD)",
+        value: `$${data.bitcoin.usd.toLocaleString()} (24h: ${data.bitcoin.usd_24h_change?.toFixed(2)}%)`,
+        source: "CoinGecko",
+        note: "Nigeria is a top-5 global P2P crypto market. BTC sentiment affects NGN parallel demand.",
+      });
+    }
+    if (data.ethereum?.usd) {
+      points.push({
+        label: "Ethereum (USD)",
+        value: `$${data.ethereum.usd.toLocaleString()} (24h: ${data.ethereum.usd_24h_change?.toFixed(2)}%)`,
+        source: "CoinGecko",
+      });
+    }
+
+    return points;
+  } catch (err) {
+    console.warn("CRYPTO_FETCH_FAILED:", err);
+    return [];
+  }
+}
+
+/**
+ * Fetches the Fear & Greed Index as a global risk sentiment proxy.
+ * Risk-off environments typically pressure EM currencies including NGN.
+ */
+async function fetchFearGreedIndex(): Promise<MacroDataPoint[]> {
+  try {
+    const res = await fetch(
+      "https://api.alternative.me/fng/?limit=1",
+      { next: { revalidate: 1800 } }
+    );
+    if (!res.ok) throw new Error(`F&G API status: ${res.status}`);
+    const data = await res.json();
+    const latest = data?.data?.[0];
+    if (!latest) throw new Error("No F&G data");
+
+    return [
+      {
+        label: "Crypto Fear & Greed Index",
+        value: `${latest.value} / 100 — ${latest.value_classification}`,
+        source: "alternative.me",
+        note: "Global risk proxy. Extreme Fear = risk-off = EM currency pressure.",
+      },
+    ];
+  } catch (err) {
+    console.warn("FEAR_GREED_FETCH_FAILED:", err);
+    return [];
+  }
+}
+
+/**
+ * Aggregates all macro data sources in parallel.
+ * Failures are soft — missing data just reduces context, doesn't crash.
+ */
+async function fetchMacroDataPoints(): Promise<MacroDataPoint[]> {
+  const [fx, oil, crypto, fearGreed] = await Promise.allSettled([
+    fetchFXRates(),
+    fetchOilPrice(),
+    fetchCryptoPrices(),
+    fetchFearGreedIndex(),
+  ]);
+
+  const all: MacroDataPoint[] = [];
+
+  if (fx.status === "fulfilled") all.push(...fx.value);
+  if (oil.status === "fulfilled") all.push(...oil.value);
+  if (crypto.status === "fulfilled") all.push(...crypto.value);
+  if (fearGreed.status === "fulfilled") all.push(...fearGreed.value);
+
+  console.log(`MACRO_DATA: Fetched ${all.length} live data points.`);
+  return all;
+}
+
+function formatMacroDataForPrompt(points: MacroDataPoint[]): string {
+  if (points.length === 0) return "";
+
+  return (
+    `\nLIVE MACRO DATA POINTS (Use to ground your analysis in current market reality):\n` +
+    points
+      .map(
+        (p) =>
+          `• ${p.label}: ${p.value}${p.note ? ` | NOTE: ${p.note}` : ""} [src: ${p.source}]`
+      )
+      .join("\n") +
+    "\n"
+  );
+}
+
+// ─────────────────────────────────────────────
+// MAIN ROUTE HANDLER
+// ─────────────────────────────────────────────
+
 export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
   const force = searchParams.get("force") === "true";
@@ -72,9 +331,8 @@ export async function GET(req: Request) {
   const currency = searchParams.get("currency") || "USD";
   const query = searchParams.get("query");
 
+  const cacheKey = !eventId && !query ? "GLOBAL" : currency;
 
-  const cacheKey = (!eventId && !query) ? "GLOBAL" : currency;
-  
   if (!eventId && !force && !query) {
     // 1. Memory
     if (memCache[cacheKey] && Date.now() - memCache[cacheKey].timestamp < CACHE_DURATION) {
@@ -84,8 +342,10 @@ export async function GET(req: Request) {
     // 2. Disk — survives server restarts
     const disk = readDiskCache(cacheKey);
     if (disk && Date.now() - disk.timestamp < CACHE_DURATION) {
-      console.log(`DISK_CACHE_HIT: Serving ${cacheKey} signals from disk (${Math.round((Date.now() - disk.timestamp) / 60000)}m old).`);
-      memCache[cacheKey] = disk; // promote to memory
+      console.log(
+        `DISK_CACHE_HIT: Serving ${cacheKey} signals from disk (${Math.round((Date.now() - disk.timestamp) / 60000)}m old).`
+      );
+      memCache[cacheKey] = disk;
       return Response.json(disk.data);
     }
   }
@@ -94,32 +354,19 @@ export async function GET(req: Request) {
     let events: any[] = [];
 
     if (eventId) {
-      console.log(
-        `ANALYSIS_START: Fetching specific event ${eventId} from Bayse...`,
-      );
+      console.log(`ANALYSIS_START: Fetching specific event ${eventId} from Bayse...`);
       const data = await bayseRead(`/v1/pm/events/${eventId}`);
-      // Handle both { event: {...} } and {...} formats
       const event = data.event || (data.id ? data : null);
       events = event ? [event] : [];
     } else if (query) {
-       console.log(
-         `ANALYSIS_START: Searching for "${query}" markets (${currency}) from Bayse...`,
-       );
-       // We use the 'search' parameter which is common in Bayse/Relay protocol
-       const data = await bayseRead(
-         `/v1/pm/events?status=open&limit=40&size=40&currency=${currency}&search=${encodeURIComponent(query)}`,
-       );
-       events = data.events ?? [];
-    } else {
-      console.log(
-        `ANALYSIS_START: Fetching global macro markets for stable synthesis...`,
-      );
-      // Logic: We fetch a broad set of markets without a currency filter.
-      // This ensures the "Global Confidence" and "Oja Score" are based on the 
-      // entire macro state, making them stable even when the user toggles display currency.
+      console.log(`ANALYSIS_START: Searching for "${query}" markets (${currency}) from Bayse...`);
       const data = await bayseRead(
-        `/v1/pm/events?status=open&limit=40&size=40`,
+        `/v1/pm/events?status=open&limit=40&size=40&currency=${currency}&search=${encodeURIComponent(query)}`
       );
+      events = data.events ?? [];
+    } else {
+      console.log(`ANALYSIS_START: Fetching global macro markets for stable synthesis...`);
+      const data = await bayseRead(`/v1/pm/events?status=open&limit=40&size=40`);
       events = data.events ?? [];
     }
 
@@ -145,19 +392,16 @@ export async function GET(req: Request) {
         liquidity: e.liquidity,
         category: e.category,
         feeRate: m.feeRate ?? e.feeRate ?? 0.1,
-      })),
+        endDate: e.closingDate || e.resolutionDate || null,
+      }))
     );
 
     // Step 3: Compute Absolute Market Math Benchmarks
-    // Targets: $50k Liquidity = 1.0, 500 Orders = 1.0
     const LIQUIDITY_BENCHMARK = 50000;
     const VOLUME_BENCHMARK = 500;
 
     const marketsWithMath = flattenedMarkets.map((m: any) => {
-      const liquidityMath = Math.min(
-        1,
-        (m.liquidity ?? 0) / LIQUIDITY_BENCHMARK,
-      );
+      const liquidityMath = Math.min(1, (m.liquidity ?? 0) / LIQUIDITY_BENCHMARK);
       const volumeMath = Math.min(1, (m.totalOrders ?? 0) / VOLUME_BENCHMARK);
 
       return {
@@ -170,7 +414,7 @@ export async function GET(req: Request) {
       };
     });
 
-    // Step 4: Fetch Live News Context
+    // Step 4a: Fetch Live News Context
     let recentNews: string[] = [];
     try {
       const { fetchMacroNews } = await import("@/lib/news-fetcher");
@@ -178,31 +422,58 @@ export async function GET(req: Request) {
     } catch (err) {
       console.warn("Could not fetch news, continuing without it.");
     }
-    
-    const newsContext = recentNews.length > 0 
-      ? `\nLATEST MACRO NEWS HEADLINES (Use to adjust sentiment/conviction):\n${recentNews.map(n => `- ${n}`).join("\n")}\n` 
-      : "";
+
+    // Step 4b: Score news by USDNGN sensitivity and rank
+    const scoredNews = recentNews.map((n) => ({
+      headline: n,
+      sensitivity: getUSDNGNSensitivity(n),
+    }));
+
+    const rankedNews = scoredNews.sort((a, b) => b.sensitivity - a.sensitivity).slice(0, 8);
+
+    const newsContext =
+      rankedNews.length > 0
+        ? `\nLATEST MACRO NEWS (ranked by USDNGN relevance, sensitivity 0-1):\n` +
+          rankedNews.map((n) => `- [sensitivity:${n.sensitivity}] ${n.headline}`).join("\n") +
+          "\n"
+        : "";
+
+    // Step 4c: Fetch expanded live macro data points
+    const macroDataPoints = await fetchMacroDataPoints();
+    const macroDataContext = formatMacroDataForPrompt(macroDataPoints);
 
     // Step 5: Construct the AI Prompt (The Alpha Filter)
-    const prompt = `You are an elite macro analyst. Analyze these live prediction markets${query ? ` specifically looking for signals related to "${query}"` : ""}.
+    const prompt = `You are an elite macro analyst with deep expertise in Nigerian and African markets. Analyze these live prediction markets${query ? ` specifically looking for signals related to "${query}"` : ""}.
 For each EVENT, you must identify and return ONLY the single most mispriced SELECTION (the "Alpha" trade).
 
 STRICT RULES:
 1. One Signal per Event: Even if an event has 10 markets, you only return ONE signal for that event—the one with the largest gap between your assessed probability and the market price.
-2. ${query ? `Search Mode: Return ALL interesting signals related to "${query}" from the provided data.` : `Demo Mode (Provide 10 to 12 Signals): For the dashboard display, provide exactly 10 to 12 high-conviction trades. Do not filter too aggressively, but prioritize the best opportunities.`}
+2. ${
+      query
+        ? `Search Mode: Return ALL interesting signals related to "${query}" from the provided data.`
+        : `Demo Mode (Provide 10 to 12 Signals): For the dashboard display, provide exactly 10 to 12 high-conviction trades. Do not filter too aggressively, but prioritize the best opportunities.`
+    }
 3. Unique Headline: The headline must be specific to the SELECTION you chose, not just the event title.
 4. Reliability Fusion: Your "source_reliability" MUST be a fusion of your logical conviction AND the provided "market_math". If liquidity_quality is low (< 0.3), you MUST downgrade your reliability score regardless of how sure your logic is. Mention this in your logic.
-5. News Context: Use the provided LATEST MACRO NEWS to inform your market sentiment and reasoning. If news directly relates to a market, reference it in your "logic".
+5. News Sensitivity: Each news headline has a [sensitivity] score (0-1) indicating how historically relevant it is to USDNGN movement. Weight your reasoning accordingly — a sensitivity:1.0 CBN headline should significantly shift your conviction; a sensitivity:0.3 headline is background noise. Reference sensitivity scores in your logic when relevant.
+6. Live Macro Data: You have been given live FX rates, oil prices, crypto prices, and risk sentiment data. These are ground truth — use them to validate or challenge market prices. If the live USDNGN rate contradicts a market's implied probability, flag it. Reference specific data points (e.g. "Brent at $X suggests...") in your reasoning.
+7. Nigerian Context: Always filter your analysis through Nigerian macro reality — parallel FX market, CBN intervention patterns, oil dependency, crypto as a dollar-access channel. A signal that looks neutral in a US context may be high-conviction in a Nigerian context.
 
 LIVE MARKET DATA WITH MATH BENCHMARKS:
 ${JSON.stringify(marketsWithMath, null, 2)}
-${newsContext}
+${macroDataContext}${newsContext}
 
 Return a JSON object:
 {
   "global_confidence": <0-1>,
   "active_signals": <count>,
   "data_points": <total orders>,
+  "macro_snapshot": {
+    "usdngn": <live rate if available, else null>,
+    "brent_crude": <live price if available, else null>,
+    "risk_sentiment": <"RISK_ON" | "RISK_OFF" | "NEUTRAL">,
+    "summary": <1 sentence macro environment summary>
+  },
   "signals": [
     {
       "eventId": <copy exact>,
@@ -214,22 +485,24 @@ Return a JSON object:
       "sentiment": <"BULLISH" | "BEARISH" | "RISK_ALERT" | "NEUTRAL">,
       "direction": <"BUY_YES" | "BUY_NO" | "WAIT">,
       "recommendation": <A short, 1-sentence actionable summary>,
-      "logic": <2-3 sentences of concise reasoning.>,
-      "source_reliability": <your 0-1 FUSED confidence score (Logic + Market Math)>,
+      "logic": <2-3 sentences of concise reasoning, referencing live data points and news sensitivity scores where relevant>,
+      "source_reliability": <your 0-1 FUSED confidence score (Logic + Market Math + Data Coverage)>,
+      "usdngn_sensitivity": <0-1 score for how directly this signal is tied to USDNGN movement>,
       "historical_accuracy": <0-1>,
       "category": <copy exact>,
       "feeRate": <copy exact>,
       "yesProbability": <copy exact price>,
       "yesOutcomeId": <copy exact>,
       "noOutcomeId": <copy exact>,
-      "liquidity": <copy the liquidity field exactly from the market data>
+      "liquidity": <copy the liquidity field exactly from the market data>,
+      "endDate": <copy exact endDate if present, else null>
     }
   ]
 }
 
-Find the alpha. Focus on Nigerian/African macro context.`;
+Find the alpha. Focus on Nigerian/African macro context. Let the live data speak.`;
 
-    // Step 5: Invoke Vertex AI
+    // Step 6: Invoke Vertex AI
     const result = await getAI().models.generateContent({
       model: "gemini-2.5-flash-lite",
       contents: prompt,
@@ -242,7 +515,7 @@ Find the alpha. Focus on Nigerian/African macro context.`;
     let responseText = result.text;
     if (!responseText) throw new Error("Vertex AI returned no text");
 
-    // Clean response text (remove markdown blocks if present)
+    // Clean response text
     responseText = responseText.replace(/```json/g, "").replace(/```/g, "").trim();
 
     let signals: any;
@@ -251,7 +524,6 @@ Find the alpha. Focus on Nigerian/African macro context.`;
     } catch (parseErr) {
       console.warn("JSON_PARSE_FAILED, attempting repair...", parseErr);
       try {
-        // Advanced repair: cut off the response at the last valid signal boundary
         let repaired = responseText;
         const lastBoundary = repaired.lastIndexOf("},{");
         if (lastBoundary !== -1) {
@@ -267,8 +539,7 @@ Find the alpha. Focus on Nigerian/African macro context.`;
       }
     }
 
-    // Step 6: Post-Processing Deduplication & Stability Latching
-    // Ensure we only have one signal per eventId even if AI hallucinated
+    // Step 7: Post-Processing Deduplication & Stability Latching
     const seenEvents = new Set();
     signals.signals = signals.signals.filter((s: any) => {
       if (seenEvents.has(s.eventId)) return false;
@@ -280,27 +551,22 @@ Find the alpha. Focus on Nigerian/African macro context.`;
     signals.signals = signals.signals.map((s: any) => {
       const prev = signalHistory[s.marketId];
       if (prev && prev.yesOutcomeId && prev.noOutcomeId) {
-        const delta = Math.abs(
-          Number(s.probability) - Number(prev.probability),
-        );
+        const delta = Math.abs(Number(s.probability) - Number(prev.probability));
         if (delta < STABILITY_THRESHOLD) {
-          // Latch to previous probability and logic to maintain consistency
-          console.log(
-            `LATCH_ACTIVE: Stabilizing ${s.marketId} (delta: ${(delta * 100).toFixed(1)}%)`,
-          );
+          console.log(`LATCH_ACTIVE: Stabilizing ${s.marketId} (delta: ${(delta * 100).toFixed(1)}%)`);
           return {
             ...s,
             probability: prev.probability,
-            logic: prev.logic, // Keep reasoning consistent too
-            recommendation: prev.recommendation, // Keep recommendation consistent too
+            logic: prev.logic,
+            recommendation: prev.recommendation,
             yesOutcomeId: prev.yesOutcomeId,
             noOutcomeId: prev.noOutcomeId,
+            endDate: prev.endDate,
             market_question: s.marketTitle,
           };
         }
       }
 
-      // Significant change or new signal — update history
       signalHistory[s.marketId] = s;
       return { ...s, market_question: s.marketTitle };
     });
@@ -310,7 +576,7 @@ Find the alpha. Focus on Nigerian/African macro context.`;
     memCache[cacheKey] = { data: signals, timestamp };
     writeDiskCache(cacheKey, signals, timestamp);
     console.log(
-      `GEMINI_SUCCESS: Generated ${signals.signals.length} unique alpha signals for ${cacheKey}. Written to disk.`,
+      `GEMINI_SUCCESS: Generated ${signals.signals.length} unique alpha signals for ${cacheKey}. Written to disk.`
     );
 
     return Response.json(signals);

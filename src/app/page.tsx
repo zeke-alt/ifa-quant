@@ -454,7 +454,7 @@ export default function Dashboard() {
                 </button>
               </form>
 
-              <div className="flex bg-card border border-border rounded-sm p-0.5">
+              <div className="flex bg-card border border-borde p-0.5">
                 {(['USD', 'NGN'] as const).map((c) => (
                   <button key={c} onClick={() => setCurrency(c)} className={cn(
                     "px-3 py-1 text-[10px] font-bold uppercase transition-all",

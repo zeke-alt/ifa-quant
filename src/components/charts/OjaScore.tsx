@@ -69,7 +69,7 @@ export default function OjaScore({ signals }: OjaScoreProps) {
     <div className="w-full space-y-6">
       <div className="flex items-center gap-6">
         {/* Sharp Gauge */}
-        <div className="relative shrink-0 w-[100px] h-[100px] border border-white/5 bg-black/40 p-2">
+        <div className="relative shrink-0 w-[100px] h-[100px] border border-white/5 p-2">
           <svg className="w-full h-full -rotate-90" viewBox="0 0 100 100">
             <circle cx="50" cy="50" r={radius} fill="none" stroke="rgba(255,255,255,0.03)" strokeWidth="6" />
             <circle

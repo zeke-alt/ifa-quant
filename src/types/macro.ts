@@ -60,4 +60,7 @@ export interface MacroSignal {
   noOutcomeId: string;
 
   liquidity?: number;
+
+  /** Market Deadline / Resolution Date */
+  endDate?: string;
 }
