@@ -37,13 +37,17 @@ interface QuoteDrawerProps {
 }
 
 interface QuoteResponse {
-  price: number;             // effective per-share price (AMM: includes fee; CLOB: limit price)
+  price: number;             // effective per-share price (0-1)
   currentMarketPrice: number;
   quantity: number;          // shares you receive
-  costOfShares: number;      // gross cost before fee (CLOB buy) or same as amount (AMM)
-  fee: number;               // 0 on AMM (embedded), explicit on CLOB
-  amount: number;            // total you pay
-  completeFill: boolean;     // CLOB only — false means partial liquidity
+  costOfShares: number;      // gross cost before fee
+  fee: number;               // explicit fee
+  amount: number;            // total spent (including fee)
+  completeFill: boolean;     // for CLOB
+  priceImpactAbsolute: number;
+  profitPercentage: number;
+  currencyBaseMultiplier: number;
+  tradeGoesOverMaxLiability: boolean;
 }
 
 interface OrderResponse {
@@ -92,7 +96,7 @@ export default function QuoteDrawer({
 }: QuoteDrawerProps) {
   // ── Form state
   const [side, setSide] = useState<"BUY" | "SELL">("BUY");
-  const [outcome, setOutcome] = useState(defaultOutcome);
+  const [outcome, setOutcome] = useState(yesOutcomeId || defaultOutcome);
   const [amount, setAmount] = useState<string>("100");        // raw input string
   const [limitPrice, setLimitPrice] = useState<string>("0.65"); // CLOB only
   const [currency, setCurrency] = useState<"USD" | "NGN">(currencyProp);
@@ -259,295 +263,293 @@ export default function QuoteDrawer({
   }
 
   return (
-    <div className="quote-drawer">
-      {/* ── Header */}
-      <div className="qd-header">
-        <Zap size={14} className="text-blue-400" />
-        <span className="qd-header-title">Trade Intelligence</span>
-        <span className={`qd-engine-badge qd-engine-badge--${engine.toLowerCase()}`}>
-          {engine}
-        </span>
-        <button className="qd-close" onClick={onClose} aria-label="Close">
-          <X size={12} />
-        </button>
-      </div>
-
-      {/* ── Side + Outcome selectors */}
-      <div className="qd-row">
-        <div className="qd-field qd-field--half">
-          <label className="qd-label">Side</label>
-          <div className="qd-toggle-group">
-            {(["BUY", "SELL"] as const).map((s) => (
-              <button
-                key={s}
-                className={`qd-toggle ${side === s ? `qd-toggle--active qd-toggle--${s.toLowerCase()}` : ""}`}
-                onClick={() => setSide(s)}
-              >
-                <div className="flex items-center justify-center gap-1.5">
-                  {s === "BUY" ? <ArrowUpRight size={10} /> : <ArrowDownRight size={10} />}
-                  {s}
-                </div>
-              </button>
-            ))}
-          </div>
+    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+      {/* Backdrop */}
+      <div 
+        className="absolute inset-0 bg-black/60 backdrop-blur-md transition-opacity duration-300" 
+        onClick={onClose} 
+      />
+      
+      {/* Drawer Content */}
+      <div className="quote-drawer relative z-10 animate-in fade-in zoom-in duration-300 max-h-[95vh] overflow-y-auto">
+        {/* ── Header */}
+        <div className="qd-header">
+          <Zap size={14} className="text-blue-400" />
+          <span className="qd-header-title">Trade Intelligence</span>
+          <span className={`qd-engine-badge qd-engine-badge--${engine.toLowerCase()}`}>
+            {engine}
+          </span>
+          <button className="qd-close" onClick={onClose} aria-label="Close">
+            <X size={12} />
+          </button>
         </div>
 
-        <div className="qd-field qd-field--half">
-          <label className="qd-label">Outcome</label>
-          <div className="qd-toggle-group">
-            {[
-              { label: "YES", id: yesOutcomeId ?? "YES" },
-              { label: "NO", id: noOutcomeId ?? "NO" },
-            ].map((o) => (
-              <button
-                key={o.label}
-                className={`qd-toggle ${outcome === o.id ? "qd-toggle--active" : ""}`}
-                onClick={() => setOutcome(o.id)}
-              >
-                <div className="flex items-center justify-center gap-1.5">
-                  {o.label === "YES" ? (
-                    <ArrowUpRight size={10} />
-                  ) : (
-                    <ArrowDownRight size={10} />
-                  )}
-                  {o.label}
-                </div>
-              </button>
-            ))}
-          </div>
-        </div>
-      </div>
-
-      {/* ── Currency selector */}
-      <div className="qd-field">
-        <label className="qd-label">Currency</label>
-        <div className="qd-toggle-group">
-          {(["USD", "NGN"] as const).map((c) => (
-            <button
-              key={c}
-              className={`qd-toggle ${currency === c ? "qd-toggle--active" : ""}`}
-              onClick={() => setCurrency(c)}
-            >
-              {c === "USD" ? "$ USD" : "₦ NGN"}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {/* ── Amount input */}
-      <div className="qd-field">
-        <label className="qd-label" htmlFor="qd-amount">
-          Amount ({currency})
-        </label>
-        <div className="qd-input-wrap">
-          <span className="qd-input-prefix">{currencySymbol}</span>
-          <input
-            id="qd-amount"
-            className="qd-input"
-            type="number"
-            min={currency === "NGN" ? 100 : 1}
-            step={currency === "NGN" ? 100 : 1}
-            value={amount}
-            onChange={(e) => setAmount(e.target.value)}
-            placeholder={currency === "NGN" ? "e.g. 5000" : "e.g. 100"}
-          />
-        </div>
-      </div>
-
-      {/* ── CLOB-only: limit price + time-in-force */}
-      {engine === "CLOB" && (
-        <>
-          <div className="qd-field">
-            <label className="qd-label" htmlFor="qd-price">
-              Limit price (0–1)
-            </label>
-            <div className="qd-input-wrap">
-              <input
-                id="qd-price"
-                className="qd-input"
-                type="number"
-                min={0}
-                max={1}
-                step={0.01}
-                value={limitPrice}
-                onChange={(e) => setLimitPrice(e.target.value)}
-                placeholder="0.65"
-              />
-              <span className="qd-input-suffix">
-                ≈ {pct(parseFloat(limitPrice || "0"))}
-              </span>
-            </div>
-          </div>
-
-          <div className="qd-field">
-            <label className="qd-label">Time-in-force</label>
+        {/* ... Rest of the component content ... */}
+        {/* I will truncate for the replacement but keep the internal logic */}
+        
+        {/* ── Side + Outcome selectors */}
+        <div className="qd-row flex gap-4">
+          <div className="qd-field qd-field--half flex-1">
+            <label className="qd-label">Side</label>
             <div className="qd-toggle-group">
-              {(["GTC", "FAK", "FOK"] as const).map((t) => (
+              {(["BUY", "SELL"] as const).map((s) => (
                 <button
-                  key={t}
-                  className={`qd-toggle ${tif === t ? "qd-toggle--active" : ""}`}
-                  onClick={() => setTif(t)}
-                  title={
-                    t === "GTC" ? "Good Till Cancel"
-                    : t === "FAK" ? "Fill and Kill"
-                    : "Fill or Kill"
-                  }
+                  key={s}
+                  className={`qd-toggle ${side === s ? `qd-toggle--active qd-toggle--${s.toLowerCase()}` : ""}`}
+                  onClick={() => setSide(s)}
                 >
-                  {t}
+                  <div className="flex items-center justify-center gap-1.5">
+                    {s === "BUY" ? <ArrowUpRight size={10} /> : <ArrowDownRight size={10} />}
+                    {s}
+                  </div>
                 </button>
               ))}
             </div>
           </div>
-        </>
-      )}
 
-      {/* ── Quote preview panel */}
-      <div className={`qd-quote-panel ${quoteLoading ? "qd-quote-panel--loading" : ""} ${quote ? "qd-quote-panel--ready" : ""}`}>
-        {quoteLoading && (
-          <div className="qd-quote-skeleton">
-            <span className="qd-loader" />
-            <span className="qd-quote-hint">Fetching quote…</span>
+          <div className="qd-field qd-field--half flex-1">
+            <label className="qd-label">Outcome</label>
+            <div className="qd-toggle-group">
+              {[
+                { label: "YES", id: yesOutcomeId ?? "YES" },
+                { label: "NO", id: noOutcomeId ?? "NO" },
+              ].map((o) => (
+                <button
+                  key={o.label}
+                  className={`qd-toggle ${outcome === o.id ? "qd-toggle--active" : ""}`}
+                  onClick={() => setOutcome(o.id)}
+                >
+                  <div className="flex items-center justify-center gap-1.5">
+                    {o.label === "YES" ? (
+                      <ArrowUpRight size={10} />
+                    ) : (
+                      <ArrowDownRight size={10} />
+                    )}
+                    {o.label}
+                  </div>
+                </button>
+              ))}
+            </div>
           </div>
-        )}
+        </div>
 
-        {quoteError && !quoteLoading && (
-          <div className="qd-quote-error">
-            <span className="qd-error-icon">⚠</span> {quoteError}
+        {/* ── Currency selector */}
+        <div className="qd-field">
+          <label className="qd-label">Currency</label>
+          <div className="qd-toggle-group">
+            {(["USD", "NGN"] as const).map((c) => (
+              <button
+                key={c}
+                className={`qd-toggle ${currency === c ? "qd-toggle--active" : ""}`}
+                onClick={() => setCurrency(c)}
+              >
+                {c === "USD" ? "$ USD" : "₦ NGN"}
+              </button>
+            ))}
           </div>
-        )}
+        </div>
 
-        {quote && !quoteLoading && (
+        {/* ── Amount input */}
+        <div className="qd-field">
+          <label className="qd-label" htmlFor="qd-amount">
+            Amount ({currency})
+          </label>
+          <div className="qd-input-wrap">
+            <span className="qd-input-prefix">{currencySymbol}</span>
+            <input
+              id="qd-amount"
+              className="qd-input"
+              type="number"
+              min={currency === "NGN" ? 100 : 1}
+              step={currency === "NGN" ? 100 : 1}
+              value={amount}
+              onChange={(e) => setAmount(e.target.value)}
+              placeholder={currency === "NGN" ? "e.g. 5000" : "e.g. 100"}
+            />
+          </div>
+        </div>
+
+        {/* ── CLOB-only: limit price + time-in-force */}
+        {engine === "CLOB" && (
           <>
-            <div className="qd-quote-row">
-              <span className="qd-quote-label">
-                <Info size={10} className="opacity-50" /> Execution price
-              </span>
-              <span className="qd-quote-value">
-                {pct(quote.price)}
-                {priceImpact !== null && Math.abs(priceImpact) > 0.1 && (
-                  <span className={`qd-impact ${priceImpact > 0 ? "qd-impact--pos" : "qd-impact--neg"}`}>
-                    {priceImpact > 0 ? "+" : ""}{priceImpact.toFixed(2)}%
-                  </span>
-                )}
-              </span>
-            </div>
-
-            <div className="qd-quote-row">
-              <span className="qd-quote-label">Market price</span>
-              <span className="qd-quote-value qd-quote-value--muted">
-                {pct(quote.currentMarketPrice)}
-              </span>
-            </div>
-
-            <div className="qd-quote-row">
-              <span className="qd-quote-label">Shares received</span>
-              <span className="qd-quote-value">{quote.quantity.toFixed(2)}</span>
-            </div>
-
-            {/* Fee row — explicit for CLOB, note for AMM */}
-            <div className="qd-quote-row qd-quote-row--fee">
-              <span className="qd-quote-label">
-                Trading fee
-                {engine === "AMM" && (
-                  <span className="qd-badge qd-badge--info">embedded</span>
-                )}
-              </span>
-              <span className="qd-quote-value qd-quote-value--fee">
-                {engine === "CLOB" && quote.fee > 0
-                  ? `${currencySymbol}${quote.fee.toFixed(2)}`
-                  : "—"}
-              </span>
-            </div>
-
-            <div className="qd-quote-divider" />
-
-            <div className="qd-quote-row qd-quote-row--total">
-              <span className="qd-quote-label qd-quote-label--total">
-                Total cost
-              </span>
-              <span className="qd-quote-value qd-quote-value--total">
-                {currencySymbol}{quote.amount.toFixed(currency === "NGN" ? 0 : 2)}
-              </span>
-            </div>
-            
-            {/* Projected Alpha — linked to AI Prediction */}
-            {quote && aiProbability && (
-              <div className="mt-4 p-3 bg-blue-600/10 border border-blue-500/20 rounded-xl">
-                <div className="flex justify-between items-center mb-2">
-                  <span className="text-[10px] font-mono text-blue-400 uppercase tracking-wider flex items-center gap-1.5">
-                    <Zap size={10} /> Projected Alpha
-                  </span>
-                  <span className="text-[10px] font-mono text-white bg-blue-600 px-1.5 py-0.5 rounded">
-                    AI: {(aiProbability * 100).toFixed(0)}%
-                  </span>
-                </div>
-                
-                <div className="space-y-1">
-                  <div className="flex justify-between text-[11px]">
-                    <span className="text-slate-400">Payout if Correct</span>
-                    <span className="text-white font-mono">
-                      {currencySymbol}{((quote.quantity) * (currency === "NGN" ? 100 : 1)).toFixed(currency === "NGN" ? 0 : 2)}
-                    </span>
-                  </div>
-                  <div className="flex justify-between text-[11px]">
-                    <span className="text-slate-400">Net Profit (Est.)</span>
-                    <span className="text-green-400 font-mono">
-                      +{currencySymbol}{( ((quote.quantity) * (currency === "NGN" ? 100 : 1)) - quote.amount ).toFixed(currency === "NGN" ? 0 : 2)}
-                    </span>
-                  </div>
-                  <div className="flex justify-between text-[11px] pt-1 border-t border-blue-500/10 mt-1">
-                    <span className="text-blue-300 font-bold">Projected ROI</span>
-                    <span className="text-blue-300 font-bold font-mono">
-                      {(( ( ((quote.quantity) * (currency === "NGN" ? 100 : 1)) - quote.amount ) / quote.amount ) * 100).toFixed(1)}%
-                    </span>
-                  </div>
-                </div>
+            <div className="qd-field">
+              <label className="qd-label" htmlFor="qd-price">
+                Limit price (0–1)
+              </label>
+              <div className="qd-input-wrap">
+                <input
+                  id="qd-price"
+                  className="qd-input"
+                  type="number"
+                  min={0}
+                  max={1}
+                  step={0.01}
+                  value={limitPrice}
+                  onChange={(e) => setLimitPrice(e.target.value)}
+                  placeholder="0.65"
+                />
+                <span className="qd-input-suffix">
+                  ≈ {pct(parseFloat(limitPrice || "0"))}
+                </span>
               </div>
-            )}
+            </div>
 
-            {engine === "AMM" && (
-              <p className="qd-fee-note">{feeNote}</p>
-            )}
-
-            {/* CLOB partial fill warning */}
-            {engine === "CLOB" && !quote.completeFill && (
-              <div className="qd-warn">
-                ⚠ Only partial liquidity available at this price. Unfilled portion depends on your TIF setting.
+            <div className="qd-field">
+              <label className="qd-label">Time-in-force</label>
+              <div className="qd-toggle-group">
+                {(["GTC", "FAK", "FOK"] as const).map((t) => (
+                  <button
+                    key={t}
+                    className={`qd-toggle ${tif === t ? "qd-toggle--active" : ""}`}
+                    onClick={() => setTif(t)}
+                    title={
+                      t === "GTC" ? "Good Till Cancel"
+                      : t === "FAK" ? "Fill and Kill"
+                      : "Fill or Kill"
+                    }
+                  >
+                    {t}
+                  </button>
+                ))}
               </div>
-            )}
+            </div>
           </>
         )}
 
-        {!quote && !quoteLoading && !quoteError && (
-          <p className="qd-quote-hint">Enter an amount to preview your order.</p>
+        {/* ── Quote preview panel */}
+        <div className={`qd-quote-panel ${quoteLoading ? "qd-quote-panel--loading" : ""} ${quote ? "qd-quote-panel--ready" : ""}`}>
+          {quoteLoading && (
+            <div className="qd-quote-skeleton flex flex-col items-center gap-2 py-4">
+              <span className="qd-loader animate-spin" />
+              <span className="qd-quote-hint">Fetching quote…</span>
+            </div>
+          )}
+
+          {quoteError && !quoteLoading && (
+            <div className="qd-quote-error text-rose-500 text-[10px] font-bold">
+              <span className="qd-error-icon">⚠</span> {quoteError}
+            </div>
+          )}
+
+          {quote && !quoteLoading && (
+            <>
+              <div className="qd-quote-row flex justify-between">
+                <span className="qd-quote-label">
+                  <Info size={10} className="inline mr-1 opacity-50" /> Execution price
+                </span>
+                <span className="qd-quote-value">
+                  {pct(quote.price)}
+                  {priceImpact !== null && Math.abs(priceImpact) > 0.1 && (
+                    <span className={`qd-impact ml-2 ${priceImpact > 0 ? "text-emerald-400" : "text-rose-400"}`}>
+                      {priceImpact > 0 ? "+" : ""}{priceImpact.toFixed(2)}%
+                    </span>
+                  )}
+                </span>
+              </div>
+
+              <div className="qd-quote-row flex justify-between">
+                <span className="qd-quote-label">Market price</span>
+                <span className="qd-quote-value opacity-50">
+                  {pct(quote.currentMarketPrice)}
+                </span>
+              </div>
+
+              <div className="qd-quote-row flex justify-between">
+                <span className="qd-quote-label">Shares received</span>
+                <span className="qd-quote-value">{quote.quantity.toFixed(2)}</span>
+              </div>
+
+              <div className="qd-quote-row flex justify-between">
+                <span className="qd-quote-label">Price Impact</span>
+                <span className={cn("qd-quote-value", quote.priceImpactAbsolute > 0.02 ? "text-orange-400" : "text-slate-400")}>
+                  {(quote.priceImpactAbsolute * 100).toFixed(2)}%
+                </span>
+              </div>
+
+              {quote.tradeGoesOverMaxLiability && (
+                <div className="flex items-center gap-2 p-2 bg-rose-500/10 border border-rose-500/20 text-rose-500 text-[9px] font-bold uppercase mb-2">
+                  <AlertTriangle size={10} /> Trade exceeds max liability
+                </div>
+              )}
+
+              <div className="qd-quote-divider h-px bg-white/5 my-2" />
+
+              <div className="qd-quote-row qd-quote-row--total flex justify-between items-end">
+                <span className="qd-quote-label font-bold text-slate-400">
+                  Total cost
+                </span>
+                <span className="qd-quote-value text-2xl font-black">
+                  {currencySymbol}{quote.amount.toFixed(currency === "NGN" ? 0 : 2)}
+                </span>
+              </div>
+              
+              {quote && aiProbability && (
+                <div className="mt-4 p-4 bg-blue-600/10 border border-blue-500/20 rounded-2xl">
+                  <div className="flex justify-between items-center mb-3">
+                    <span className="text-[9px] font-bold text-blue-400 uppercase tracking-widest flex items-center gap-2">
+                      <Zap size={10} fill="currentColor" /> Projected Performance
+                    </span>
+                    <span className="text-[9px] font-bold text-white bg-blue-600 px-2 py-0.5 rounded-full">
+                      AI CONF: {(aiProbability * 100).toFixed(0)}%
+                    </span>
+                  </div>
+                  
+                  <div className="space-y-2">
+                    <div className="flex justify-between text-[11px] font-medium">
+                      <span className="text-slate-500">Payout if Correct</span>
+                      <span className="text-white font-mono">
+                        {currencySymbol}{((quote.quantity) * (currency === "NGN" ? 100 : 1)).toFixed(currency === "NGN" ? 0 : 2)}
+                      </span>
+                    </div>
+                    <div className="flex justify-between text-[11px] font-bold">
+                      <span className="text-slate-500">Potential Profit</span>
+                      <span className="text-emerald-400 font-mono">
+                        +{currencySymbol}{( ((quote.quantity) * (currency === "NGN" ? 100 : 1)) - quote.amount ).toFixed(currency === "NGN" ? 0 : 2)}
+                      </span>
+                    </div>
+                    <div className="flex justify-between text-[11px] pt-2 border-t border-blue-500/10 mt-2">
+                      <span className="text-blue-400 font-black uppercase">Market ROI</span>
+                      <span className="text-blue-400 font-black font-mono">
+                        {quote.profitPercentage.toFixed(1)}%
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+
+          {!quote && !quoteLoading && !quoteError && (
+            <p className="qd-quote-hint text-center py-4 text-slate-600 text-[10px] uppercase font-bold tracking-widest">Enter an amount to preview your order</p>
+          )}
+        </div>
+
+        {/* ── Action buttons */}
+        <div className="qd-actions flex gap-4">
+          <button
+            className="qd-btn qd-btn--secondary flex-1"
+            onClick={onClose}
+            disabled={ordering}
+          >
+            Cancel
+          </button>
+          <button
+            className={`qd-btn qd-btn--primary flex-[2] qd-btn--${side.toLowerCase()}`}
+            onClick={placeOrder}
+            disabled={!quote || quoteLoading || ordering}
+          >
+            {ordering
+              ? "Placing…"
+              : quote
+              ? `${side} · ${currencySymbol}${parseFloat(amount || "0").toLocaleString()}`
+              : "Get quote first"}
+          </button>
+        </div>
+
+        {orderError && (
+          <div className="qd-order-error text-center text-rose-500 text-[10px] font-bold uppercase mt-2">⚠ {orderError}</div>
         )}
       </div>
-
-      {/* ── Action buttons */}
-      <div className="qd-actions">
-        <button
-          className="qd-btn qd-btn--secondary"
-          onClick={onClose}
-          disabled={ordering}
-        >
-          Cancel
-        </button>
-        <button
-          className={`qd-btn qd-btn--primary qd-btn--${side.toLowerCase()}`}
-          onClick={placeOrder}
-          disabled={!quote || quoteLoading || ordering}
-        >
-          {ordering
-            ? "Placing…"
-            : quote
-            ? `${side} · ${currencySymbol}${parseFloat(amount || "0").toLocaleString()}`
-            : "Get quote first"}
-        </button>
-      </div>
-
-      {orderError && (
-        <div className="qd-order-error">⚠ {orderError}</div>
-      )}
     </div>
   );
 }

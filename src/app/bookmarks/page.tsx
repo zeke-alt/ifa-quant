@@ -5,7 +5,7 @@ import MarketCard from '@/features/bayse-trading/MarketCard';
 import SignalCard from '@/features/macro-feed/SignalCard';
 import { analyzeMarkets } from '@/lib/api-client';
 import { MacroSignal } from '@/types/macro';
-import { Bookmark, LayoutGrid, List, ArrowLeft, Zap } from 'lucide-react';
+import { Bookmark, LayoutGrid, List, ArrowLeft, Zap, Activity, RefreshCcw } from 'lucide-react';
 import { useBookmarks } from '@/hooks/useBookmarks';
 import { useLayout } from '@/context/LayoutContext';
 import { cn } from '@/lib/utils';
@@ -17,6 +17,7 @@ export default function BookmarksPage() {
   const [view, setView] = useState<'grid' | 'list'>('grid');
   const { bookmarks } = useBookmarks();
   const { isSidebarCollapsed } = useLayout();
+  const [searchQuery, setSearchQuery] = useState("");
 
   const fetchSignals = useCallback(async () => {
     setLoading(true);
@@ -34,77 +35,98 @@ export default function BookmarksPage() {
     fetchSignals();
   }, [fetchSignals]);
 
-  const bookmarkedSignals = signals.filter(s => bookmarks.includes(s.marketId));
+  const bookmarkedSignals = signals.filter(s => {
+    const isBookmarked = bookmarks.includes(s.marketId);
+    if (!isBookmarked) return false;
+    
+    const searchLower = searchQuery.toLowerCase();
+    return (
+      (s.headline || "").toLowerCase().includes(searchLower) ||
+      (s.eventTitle || "").toLowerCase().includes(searchLower) ||
+      (s.marketTitle || "").toLowerCase().includes(searchLower) ||
+      (s.category || "").toLowerCase().includes(searchLower)
+    );
+  });
 
   return (
-    <div className="min-h-screen bg-background text-foreground transition-all duration-300">
+    <div className="min-h-screen bg-background text-foreground transition-all duration-300 selection:bg-primary/20">
       <Sidebar />
       
       <main className={cn(
-        "p-6 lg:p-12 transition-all duration-500 ease-in-out",
+        "flex flex-col min-h-screen transition-all duration-300 pt-16 lg:pt-0",
         isSidebarCollapsed ? "lg:ml-20" : "lg:ml-64"
       )}>
-        <div className="max-w-7xl mx-auto pt-16 lg:pt-0">
+        <div className="flex-1 p-4 lg:p-6 max-w-[1800px] mx-auto w-full">
           
           {/* Header */}
-          <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-12 gap-6">
+          <div className="flex flex-col md:flex-row md:items-center justify-between mb-6 border-b border-border pb-4 gap-4">
             <div>
-              <div className="flex items-center gap-3 mb-2">
-                <Link href="/" className="p-2 rounded-xl bg-secondary text-muted-foreground hover:text-primary transition-colors">
-                  <ArrowLeft size={18} />
+              <div className="flex items-center gap-3">
+                <Link href="/" className="text-muted-foreground hover:text-primary transition-colors">
+                  <ArrowLeft size={16} />
                 </Link>
-                <h1 className="text-3xl lg:text-5xl font-black text-foreground tracking-tighter uppercase italic">SAVED_ALPHA</h1>
+                <h1 className="text-xl font-bold text-foreground tracking-tighter flex items-center gap-2 uppercase italic">
+                  Saved_Alpha <span className="text-muted-foreground font-mono text-xs tracking-[0.3em] not-italic">VAULT_01</span>
+                </h1>
               </div>
-              <p className="text-muted-foreground text-[10px] font-black mt-1 tracking-[0.2em] uppercase opacity-40">
-                Your Curated Macro Intelligence Feed
+              <p className="text-[9px] font-mono uppercase text-muted-foreground mt-1 tracking-widest ml-7">
+                Curated_Inference_Cache // Sync: {new Date().toLocaleTimeString()}
               </p>
             </div>
 
             <div className="flex items-center gap-4">
-              <div className="flex bg-secondary p-1 rounded-xl border border-border">
+              <div className="relative group hidden sm:block">
+                <input 
+                  type="text"
+                  placeholder="Query_Vault..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="bg-accent/20 border border-border py-1.5 pl-3 pr-8 text-[10px] font-mono focus:outline-none focus:border-primary/40 w-40 transition-all"
+                />
+                <Zap size={10} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground/40 group-focus-within:text-primary transition-colors" />
+              </div>
+
+              <div className="flex items-center gap-2 bg-accent/20 border border-border p-0.5">
                 <button 
                   onClick={() => setView('grid')}
-                  className={cn("p-2 rounded-lg transition-all", view === 'grid' ? "bg-background text-primary shadow-sm" : "text-muted-foreground")}
+                  className={cn("px-4 py-1.5 text-[9px] font-bold transition-all uppercase tracking-widest flex items-center gap-2", view === 'grid' ? "bg-foreground text-background" : "text-muted-foreground hover:text-foreground")}
                 >
-                  <LayoutGrid size={16} />
+                  <LayoutGrid size={12} /> Grid_Matrix
                 </button>
                 <button 
                   onClick={() => setView('list')}
-                  className={cn("p-2 rounded-lg transition-all", view === 'list' ? "bg-background text-primary shadow-sm" : "text-muted-foreground")}
+                  className={cn("px-4 py-1.5 text-[9px] font-bold transition-all uppercase tracking-widest flex items-center gap-2", view === 'list' ? "bg-foreground text-background" : "text-muted-foreground hover:text-foreground")}
                 >
-                  <List size={16} />
+                  <List size={12} /> Stream_List
                 </button>
               </div>
             </div>
           </div>
 
           {loading ? (
-            <div className="flex flex-col items-center justify-center py-32 space-y-4">
-              <div className="w-12 h-12 border-4 border-primary/20 border-t-primary rounded-full animate-spin" />
-              <p className="text-[10px] font-black text-muted-foreground uppercase tracking-[0.3em] animate-pulse">Syncing_Vault...</p>
+            <div className="h-96 flex flex-col items-center justify-center border border-border bg-accent/10">
+              <RefreshCcw className="animate-spin text-primary mb-4" size={24} />
+              <span className="text-[10px] font-mono text-muted-foreground animate-pulse tracking-[0.5em]">SYNCING_VAULT_LEDGER</span>
             </div>
           ) : bookmarkedSignals.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-32 text-center space-y-6">
-              <div className="w-20 h-20 rounded-3xl bg-secondary flex items-center justify-center text-muted-foreground">
-                <Bookmark size={40} strokeWidth={1} />
+            <div className="h-96 flex flex-col items-center justify-center border border-border bg-accent/10 text-center p-8">
+              <div className="w-16 h-16 border border-border flex items-center justify-center text-muted-foreground/20 mb-6">
+                <Bookmark size={32} />
               </div>
-              <div>
-                <h2 className="text-xl font-black tracking-tight mb-2 uppercase">No Saved Signals</h2>
-                <p className="text-sm text-muted-foreground max-w-xs mx-auto font-medium">
-                  You haven't bookmarked any market alpha yet. Head to the terminal to start curating your feed.
-                </p>
-              </div>
+              <h2 className="text-sm font-bold text-muted-foreground tracking-[0.2em] uppercase mb-2">No_Saved_Signals</h2>
+              <p className="text-[11px] text-muted-foreground/60 font-mono max-w-xs mx-auto mb-8">
+                Your intelligence cache is empty. Aggregate market alpha from the main terminal.
+              </p>
               <Link href="/">
-                <button className="px-8 py-4 bg-primary text-primary-foreground rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-primary/90 transition-all shadow-xl shadow-primary/20 flex items-center gap-3">
-                  <Zap size={14} />
-                  Explore Terminal
+                <button className="bg-primary text-primary-foreground px-8 py-3 text-[10px] font-bold uppercase tracking-widest hover:bg-primary/90 transition-all flex items-center gap-2">
+                  <Zap size={14} fill="currentColor" /> Explore_Terminal
                 </button>
               </Link>
             </div>
           ) : (
             <div className={cn(
-              "grid gap-8",
-              view === 'grid' ? "grid-cols-1 md:grid-cols-2 xl:grid-cols-3" : "grid-cols-1"
+              "grid gap-4",
+              view === 'grid' ? "grid-cols-1 md:grid-cols-2 xl:grid-cols-3" : "grid-cols-1 lg:max-w-4xl lg:mx-auto"
             )}>
               {bookmarkedSignals.map((signal) => (
                 view === 'grid' ? (
@@ -117,10 +139,10 @@ export default function BookmarksPage() {
           )}
 
           {/* Footer Decoration */}
-          <div className="mt-20 pt-12 border-t border-border flex flex-col items-center gap-4 text-center">
-            <div className="w-1 h-12 bg-gradient-to-b from-primary to-transparent opacity-30" />
-            <p className="text-[10px] font-black text-muted-foreground uppercase tracking-[0.4em] opacity-40">
-              End of Saved Alpha // Oja Intelligence Vault
+          <div className="mt-12 py-8 border-t border-border flex flex-col items-center gap-3">
+            <Activity size={16} className="text-muted-foreground/20 animate-pulse" />
+            <p className="text-[8px] font-mono font-bold text-muted-foreground/40 uppercase tracking-[0.5em]">
+              OJA_VAULT_SUBSYSTEM_ONLINE // NODE_01
             </p>
           </div>
         </div>

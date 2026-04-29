@@ -38,11 +38,15 @@ export async function bayse(path: string, options?: RequestInit) {
  * using Vertex AI based on current market conditions.
  * 
  * @param force If true, bypasses server-side caching
+ * @param currency The target currency (USD/NGN)
+ * @param query Optional search query to fetch specific market signals
  */
-export async function analyzeMarkets(force = false, currency = 'USD') {
+export async function analyzeMarkets(force = false, currency = 'USD', query = '') {
   const params = new URLSearchParams();
   if (force) params.append("force", "true");
   params.append("currency", currency);
+  if (query) params.append("query", query);
+  
   const res = await fetch(`/api/analyze?${params.toString()}`);
   
   // Debug log to monitor raw response status in development

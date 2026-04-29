@@ -21,6 +21,9 @@ export interface MacroSignal {
   /** AI's probability for this specific selection */
   probability: number;
 
+  /** A short, actionable summary */
+  recommendation?: string;
+
   /** AI's reasoning for this specific selection */
   logic: string;
 

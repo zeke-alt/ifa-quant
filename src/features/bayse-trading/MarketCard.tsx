@@ -1,7 +1,6 @@
 "use client";
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
-  ArrowRight,
   TrendingUp,
   TrendingDown,
   AlertTriangle,
@@ -12,6 +11,11 @@ import {
   X,
   Zap,
   Bookmark,
+  ChevronRight,
+  ShieldCheck,
+  Activity,
+  Loader2,
+  ArrowUpRight
 } from 'lucide-react';
 import { MacroSignal } from '@/types/macro';
 import DivergenceLine from '@/components/charts/DivergenceLine';
@@ -19,33 +23,16 @@ import QuoteDrawer from '@/components/ui/QuoteDrawer';
 import { useBookmarks } from '@/hooks/useBookmarks';
 import { cn } from '@/lib/utils';
 
+// --- SENTIMENT & TRADE LOGIC ---
 
 const SENTIMENT_CONFIG = {
-  BULLISH: { icon: TrendingUp, color: 'text-green-500', bg: 'bg-green-500/10', label: 'BULLISH' },
-  BEARISH: { icon: TrendingDown, color: 'text-red-500', bg: 'bg-red-500/10', label: 'BEARISH' },
+  BULLISH: { icon: TrendingUp, color: 'text-emerald-500', bg: 'bg-emerald-500/10', label: 'BULLISH' },
+  BEARISH: { icon: TrendingDown, color: 'text-rose-500', bg: 'bg-rose-500/10', label: 'BEARISH' },
   RISK_ALERT: { icon: AlertTriangle, color: 'text-orange-500', bg: 'bg-orange-500/10', label: 'RISK_ALERT' },
-  NEUTRAL: { icon: Minus, color: 'text-muted-foreground', bg: 'bg-secondary', label: 'NEUTRAL' },
+  NEUTRAL: { icon: Minus, color: 'text-muted-foreground', bg: 'bg-muted/10', label: 'NEUTRAL' },
 };
 
-
-/**
- * computeTradeScore
- * -----------------
- * Combines probability, source reliability, historical accuracy, and sentiment
- * into a single 0–100 score, then maps it to a human-readable action label.
- *
- * Weighting rationale:
- * - Probability (40%):         the AI's core directional conviction
- * - Source reliability (30%):  how trustworthy the underlying data is
- * - Historical accuracy (30%): how often this signal type has been right before
- *
- * Sentiment modifier:
- * - BULLISH/BEARISH: no penalty (clear direction)
- * - NEUTRAL:         slight penalty (-5)  — unclear direction reduces confidence
- * - RISK_ALERT:      stronger penalty (-15) — flag for user caution
- */
 function computeTradeScore(signal: MacroSignal) {
-  // Guard against Gemini returning strings instead of numbers
   const probability = Number(signal.probability);
   const source_reliability = Number(signal.source_reliability);
   const historical_accuracy = Number(signal.historical_accuracy);
@@ -63,400 +50,230 @@ function computeTradeScore(signal: MacroSignal) {
 
   let action: string;
   let actionColor: string;
-  let actionBg: string;
-  let reasoning: string;
+  if (score >= 75) { action = 'STRONG BUY ↑'; actionColor = 'text-emerald-400'; }
+  else if (score >= 58) { action = 'ACCUMULATE ↑'; actionColor = 'text-sky-500'; }
+  else if (score >= 42) { action = 'NEUTRAL'; actionColor = 'text-muted-foreground'; }
+  else { action = 'UNDERWEIGHT ↓'; actionColor = 'text-rose-500'; }
 
-  if (score >= 75) {
-    action = 'STRONG BUY ↑';
-    actionColor = 'text-green-400';
-    actionBg = 'bg-green-500/10 border-green-500/30';
-    reasoning = `High confidence signal. AI probability is ${(probability * 100).toFixed(0)}%, backed by a ${(source_reliability * 100).toFixed(0)}% reliable source with ${(historical_accuracy * 100).toFixed(0)}% historical accuracy. Risk is low — conditions strongly favor a YES outcome.`;
-  } else if (score >= 58) {
-    action = 'BUY ↑';
-    actionColor = 'text-blue-400';
-    actionBg = 'bg-blue-500/10 border-blue-500/30';
-    reasoning = `Moderate confidence. The signal leans positive but has some uncertainty — either the source isn't fully reliable or historical accuracy is mixed. Consider a smaller position size.`;
-  } else if (score >= 42) {
-    action = 'HOLD';
-    actionColor = 'text-muted-foreground';
-    actionBg = 'bg-secondary border-border';
-    reasoning = `Mixed signals. The AI probability and data quality don't align strongly enough to justify a trade right now. Wait for the market to develop more clarity before entering.`;
-  } else {
-    action = 'AVOID ↓';
-    actionColor = 'text-red-400';
-    actionBg = 'bg-red-500/10 border-red-500/30';
-    reasoning = `Weak or risky signal. ${signal.sentiment === 'RISK_ALERT' ? 'A RISK_ALERT sentiment was flagged — ' : ''}Low source reliability or poor historical accuracy makes this trade unfavorable. The downside risk outweighs potential gains.`;
-  }
-
-  return { score, action, actionColor, actionBg, reasoning };
+  return { score, action, actionColor };
 }
 
-
-function LogicText({ text }: { text: string }) {
-  const [expanded, setExpanded] = useState(false);
-  return (
-    <div>
-      <p className={`text-[11px] text-slate-500 leading-relaxed ${!expanded ? 'line-clamp-4' : ''}`}>
-        {text}
-      </p>
-      <button
-        onClick={() => setExpanded(!expanded)}
-        className="text-[10px] text-orange-400 hover:text-orange-300 mt-1 transition-colors"
-      >
-        {expanded ? 'Show less ↑' : 'Read more ↓'}
-      </button>
-    </div>
-  );
-}
-
-
-/**
- * Wraps QuoteDrawer in a backdrop overlay.
- * Closes on backdrop click or Escape key.
- * Uses a portal-style fixed overlay so it sits above the card grid.
- */
-function QuoteModal({
-  signal,
-  currency = 'USD',
-  onClose,
-}: {
-  signal: MacroSignal;
-  currency?: 'USD' | 'NGN';
-  onClose: () => void;
-}) {
-  const [outcomeId, setOutcomeId] = useState<string | null>(null);
-  const [loadingOutcome, setLoadingOutcome] = useState(true);
-
-  // Close on Escape + lock body scroll
-  useEffect(() => {
-    const handleKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
-    window.addEventListener('keydown', handleKey);
-    document.body.style.overflow = 'hidden';
-    return () => {
-      window.removeEventListener('keydown', handleKey);
-      document.body.style.overflow = '';
-    };
-  }, [onClose]);
-
-  // Fetch real outcome IDs from Bayse on-demand
-  useEffect(() => {
-    let isMounted = true;
-
-    async function resolveIds() {
-      if (!signal) return;
-
-      // 1. Check if they are already in the signal (cached)
-      if (signal.yesOutcomeId && signal.noOutcomeId) {
-        setOutcomeId(signal.direction === 'BUY_NO' ? signal.noOutcomeId : signal.yesOutcomeId);
-        setLoadingOutcome(false);
-        return;
-      }
-
-      // 2. Otherwise, fetch them now
-      try {
-        const res = await fetch(`/api/bayse/events/${signal.eventId}/markets/${signal.marketId}`);
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        
-        const data = await res.json();
-        
-        // Handle various possible Bayse API response shapes
-        const outcomes = data?.outcomes || data?.market?.outcomes || [];
-        
-        const yes = outcomes.find((o: any) => 
-          o.name?.toLowerCase() === 'yes' || o.title?.toLowerCase() === 'yes'
-        );
-        const no = outcomes.find((o: any) => 
-          o.name?.toLowerCase() === 'no' || o.title?.toLowerCase() === 'no'
-        );
-
-        if (isMounted) {
-          if (yes?.id) signal.yesOutcomeId = yes.id;
-          if (no?.id) signal.noOutcomeId = no.id;
-
-          const activeId = signal.direction === 'BUY_NO' ? no?.id : yes?.id;
-          setOutcomeId(activeId || (signal.direction === 'BUY_NO' ? 'NO' : 'YES'));
-        }
-      } catch (err) {
-        console.error("Failed to fetch outcome IDs, falling back to defaults:", err);
-        if (isMounted) {
-          setOutcomeId(signal.direction === 'BUY_NO' ? 'NO' : 'YES');
-        }
-      } finally {
-        if (isMounted) setLoadingOutcome(false);
-      }
-    }
-
-    resolveIds();
-    return () => { isMounted = false; };
-  }, [signal]);
-
-  const engine = (signal as MacroSignal & { engine?: 'AMM' | 'CLOB' }).engine ?? 'AMM';
-
-  return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4"
-      style={{ background: 'rgba(0, 0, 0, 0.75)', backdropFilter: 'blur(4px)' }}
-      onClick={onClose}
-    >
-      <div className="relative w-full max-w-[420px]" onClick={(e) => e.stopPropagation()}>
-        <button
-          onClick={onClose}
-          className="absolute -top-10 right-0 text-slate-400 hover:text-white transition-colors flex items-center gap-1.5 text-xs font-mono"
-        >
-          ESC <X size={14} />
-        </button>
-
-        {loadingOutcome ? (
-          <div className="text-slate-400 text-xs font-mono text-center p-6">
-            Loading market data...
-          </div>
-        ) : (
-          <QuoteDrawer
-            eventId={signal.eventId}
-            marketId={signal.marketId}
-            defaultOutcome={outcomeId ?? 'YES'}
-            yesOutcomeId={signal.yesOutcomeId}
-            noOutcomeId={signal.noOutcomeId}
-            engine={engine}
-            currencyProp={currency}
-            aiProbability={Number(signal.probability)}
-            onOrderConfirmed={(_orderId) => onClose()}
-            onClose={onClose}
-          />
-        )}
-      </div>
-    </div>
-  );
-}
-
+// --- MAIN COMPONENT ---
 
 export default function MarketCard({ signal, currency = 'USD' }: { signal: MacroSignal, currency?: 'USD' | 'NGN' }) {
   const [expanded, setExpanded] = useState(false);
-  // showQuote lives here, inside the component — not at module scope
   const [showQuote, setShowQuote] = useState(false);
+  const [logicExpanded, setLogicExpanded] = useState(false);
   const { toggleBookmark, isBookmarked } = useBookmarks();
 
-  const probability = Number(signal.probability);
-  const prob = (probability * 100).toFixed(0);
-  const sentiment = signal.sentiment ?? 'NEUTRAL';
-  const config = SENTIMENT_CONFIG[sentiment] ?? SENTIMENT_CONFIG.NEUTRAL;
-  const SentimentIcon = config.icon;
-  const bookmarked = isBookmarked(signal.marketId);
-
-  // Momentum derived from probability deviation from 0.5, weighted by signal quality
-  const signalStrength = (signal.source_reliability + signal.historical_accuracy) / 2;
-  const momentumValue = (signal.probability - 0.5) * signalStrength * 100;
-  const momentumLabel =
-    momentumValue > 3 ? `UPWARD +${momentumValue.toFixed(1)}%`
-      : momentumValue < -3 ? `DOWNWARD ${momentumValue.toFixed(1)}%`
-        : 'STABLE';
-  const momentumColor =
-    momentumValue > 3 ? 'text-green-500'
-      : momentumValue < -3 ? 'text-red-500'
-        : 'text-slate-400';
-
-  // Trade recommendation
-  const { score, action, actionColor, actionBg, reasoning } = computeTradeScore(signal);
-
-  const direction = signal.direction;
-  const directionLabel =
-    direction === 'BUY_YES' ? 'BUY ↑'
-      : direction === 'BUY_NO' ? 'BUY ↓'
-        : 'HOLD';
-  const directionColor =
-    direction === 'BUY_YES' ? 'text-green-500'
-      : direction === 'BUY_NO' ? 'text-red-500'
-        : 'text-slate-400';
-
-  // Whether the trade score is actionable (not HOLD or AVOID)
-  const isActionable = score >= 58;
+  const prob = (Number(signal.probability) * 100).toFixed(0);
+  const { score, action, actionColor } = computeTradeScore(signal);
+  const config = SENTIMENT_CONFIG[signal.sentiment as keyof typeof SENTIMENT_CONFIG] ?? SENTIMENT_CONFIG.NEUTRAL;
+  
+  // Momentum Logic
+  const momentumValue = (Number(signal.probability) - 0.5) * ((signal.source_reliability + signal.historical_accuracy) / 2) * 100;
+  const momentumLabel = momentumValue > 2 ? `+${momentumValue.toFixed(1)}%` : momentumValue < -2 ? `${momentumValue.toFixed(1)}%` : 'STABLE';
+  const momentumColor = momentumValue > 2 ? 'text-emerald-500' : momentumValue < -2 ? 'text-rose-500' : 'text-muted-foreground';
 
   return (
     <>
-      {/* ── Quote modal (rendered outside card in DOM order) */}
-      {showQuote && (
-        <QuoteModal
-          signal={signal}
-          currency={currency}
-          onClose={() => setShowQuote(false)}
-        />
-      )}
+      <div className={cn(
+        "bg-card border border-border rounded-none group transition-all duration-500 flex flex-col justify-between relative overflow-hidden",
+        signal.sentiment === 'BULLISH' ? 'hover:border-emerald-500/50 hover:shadow-[0_0_30px_rgba(16,185,129,0.15)]' :
+        signal.sentiment === 'BEARISH' ? 'hover:border-rose-500/50 hover:shadow-[0_0_30px_rgba(244,63,94,0.15)]' :
+        signal.sentiment === 'RISK_ALERT' ? 'hover:border-orange-500/50 hover:shadow-[0_0_30px_rgba(249,115,22,0.15)]' :
+        'hover:border-blue-500/50 hover:shadow-[0_0_30px_rgba(59,130,246,0.15)]'
+      )}>
+        
+        {/* Bloomberg Side-Bar */}
+        <div className={cn(
+          "absolute left-0 top-0 bottom-0 w-1 transition-all duration-300 group-hover:w-1.5",
+          signal.sentiment === 'BULLISH' ? 'bg-emerald-500' : 
+          signal.sentiment === 'BEARISH' ? 'bg-rose-500' : 
+          signal.sentiment === 'RISK_ALERT' ? 'bg-orange-500' : 'bg-muted-foreground'
+        )} />
 
-      <div className="bg-card/50 backdrop-blur-sm border border-border rounded-3xl group transition-all duration-300 flex flex-col justify-between hover:border-primary/50 hover:shadow-2xl hover:shadow-primary/5 hover:-translate-y-1">
-        <div className="p-8">
+        {/* Dynamic Color Highlight on Hover */}
+        <div className={cn(
+          "absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-500 pointer-events-none",
+          signal.sentiment === 'BULLISH' ? 'bg-gradient-to-br from-emerald-500/10 via-transparent to-transparent' :
+          signal.sentiment === 'BEARISH' ? 'bg-gradient-to-br from-rose-500/10 via-transparent to-transparent' :
+          signal.sentiment === 'RISK_ALERT' ? 'bg-gradient-to-br from-orange-500/10 via-transparent to-transparent' :
+          'bg-gradient-to-br from-blue-500/10 via-transparent to-transparent'
+        )} />
 
-          {/* ── Header ── */}
-          <div className="flex justify-between items-start mb-8">
-            <div className="flex items-center gap-2">
-              <div className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl ${config.bg} border border-transparent group-hover:border-current/10 transition-colors`}>
-                <SentimentIcon size={14} className={config.color} />
-                <span className={`text-[10px] font-black tracking-wider ${config.color}`}>{config.label}</span>
+        <div className="p-5 flex flex-col flex-1">
+          {/* Header: AI Prediction & Sentiment */}
+          <div className="flex justify-between items-start mb-6">
+            <div className="flex items-center gap-3">
+              <div className={cn("flex items-center gap-2 px-3 py-1.5 bg-emerald-500/10 border border-emerald-500/20", config.color)}>
+                <config.icon size={10} strokeWidth={3} />
+                <span className="text-[10px] font-bold tracking-widest">{config.label}</span>
               </div>
-              <button
-                onClick={() => toggleBookmark(signal.marketId)}
-                className={`p-2 rounded-xl border transition-all ${
-                  bookmarked 
-                    ? 'bg-blue-500/10 border-blue-500/30 text-blue-500' 
-                    : 'bg-secondary border-border text-muted-foreground hover:text-foreground'
-                }`}
-                title={bookmarked ? "Remove bookmark" : "Add bookmark"}
-              >
-                <Bookmark size={14} fill={bookmarked ? "currentColor" : "none"} />
+              <button onClick={() => toggleBookmark(signal.marketId)} className="p-2 bg-accent hover:bg-accent/80 transition-colors border border-border">
+                <Bookmark size={12} fill={isBookmarked(signal.marketId) ? "currentColor" : "none"} className="text-muted-foreground" />
               </button>
             </div>
-            <div className="text-right">
-              <div className="text-[10px] text-muted-foreground font-mono uppercase tracking-widest mb-1 opacity-80">AI Prediction</div>
-              <div className="text-3xl font-black text-foreground font-mono tracking-tighter">{prob}%</div>
-              <div className="text-[10px] text-muted-foreground font-mono mt-1 font-bold">
-                COST: {currency === 'NGN' ? '₦' : '$'}{(Number(signal.yesProbability) * (currency === 'NGN' ? 100 : 1)).toFixed(2)}
-              </div>
+            <div className="text-right font-mono">
+              <p className="text-[10px] text-muted-foreground uppercase mb-1 font-bold tracking-widest">AI PREDICTION</p>
+              <p className="text-3xl font-bold text-foreground leading-none tracking-tighter group-hover:text-blue-500 transition-colors">{prob}%</p>
+              <p className="text-[9px] text-muted-foreground mt-1 uppercase font-bold">COST: <span className="text-foreground/80">{currency === 'NGN' ? '₦' : '$'}{currency === 'NGN' ? (signal.yesProbability * 100).toFixed(2) : signal.yesProbability.toFixed(2)}</span></p>
             </div>
           </div>
 
-          {/* ── Event context + headline ── */}
-          <div className="flex flex-col gap-2 mb-6">
-            <div className="flex items-center gap-2">
-              <div className="bg-secondary px-2 py-1 rounded-lg text-[9px] font-black text-muted-foreground uppercase tracking-widest border border-border">
-                {signal.eventTitle}
-              </div>
-              <span className="text-[9px] font-mono text-muted-foreground/60 uppercase font-bold">{signal.category}</span>
+          {/* Question & Category Box */}
+          <div className="flex items-center justify-between gap-3 mb-6">
+            <div 
+              className="bg-accent border border-border px-4 py-2 flex-1 group/q hover:border-primary/50 transition-colors cursor-pointer flex items-center justify-between" 
+              onClick={() => window.open(`https://app.bayse.markets/market/${signal.eventId}`, '_blank')}
+            >
+               <p className="text-[10px] font-bold text-muted-foreground uppercase leading-tight line-clamp-1">
+                 {signal.eventTitle}
+               </p>
+               <ArrowUpRight size={12} className="text-muted-foreground/60 group-hover/q:text-primary transition-colors shrink-0" />
             </div>
+            <span className="text-[9px] font-bold text-muted-foreground/80 uppercase tracking-widest">{signal.category}</span>
+          </div>
 
-            <h3 className="text-foreground font-black text-xl leading-[1.1] tracking-tight group-hover:text-primary transition-colors">
+          {/* Headline & Selection */}
+          <div className="mb-8">
+            <h3 className="text-xl font-bold text-primary leading-tight mb-2 tracking-tight group-hover:text-primary/80 transition-colors line-clamp-2">
               {signal.headline}
             </h3>
-
-            <p className="text-muted-foreground text-xs italic opacity-80 font-medium">
-              {signal.marketTitle}
-            </p>
+            <p className="text-[11px] text-muted-foreground italic font-mono line-clamp-1">{signal.marketTitle}</p>
           </div>
 
-          {/* ── Divergence chart ── */}
-          <div className="border border-border rounded-2xl p-5 bg-background/50 mb-6">
-            <div className="flex justify-between text-[10px] font-mono mb-3">
-              <div className="flex items-center gap-1.5 text-primary font-bold">
-                <Target size={14} /> AI_FAIR_VALUE
+          {/* Divergence Visual */}
+          <div className="bg-muted/30 border border-border p-3 mb-6">
+            <div className="flex justify-between text-[9px] font-bold text-muted-foreground uppercase mb-3 tracking-widest">
+              <div className="flex items-center gap-2 text-primary">
+                <div className="w-3 h-3 border border-primary/50 flex items-center justify-center rounded-full p-0.5">
+                   <div className="w-full h-full border border-primary rounded-full" />
+                </div>
+                AI_FAIR_VALUE
               </div>
-              <div className="text-muted-foreground opacity-60 font-bold">MARKET_SENTIMENT</div>
+              <span>MARKET_SENTIMENT</span>
             </div>
-            <DivergenceLine
-              aiProb={probability * 100}
+            <DivergenceLine 
+              aiProb={Number(signal.probability) * 100}
               eventId={signal.eventId}
               marketId={signal.marketId}
               marketPrice={signal.yesProbability * 100}
             />
           </div>
 
-          {/* ── Reliability stats ── */}
-          <div className="grid grid-cols-2 gap-3 mb-6">
-            {[
-              { label: 'CONFIDENCE', value: signal.source_reliability },
-              { label: 'ACCURACY', value: signal.historical_accuracy },
-            ].map(({ label, value }) => (
-              <div key={label} className="bg-secondary/50 rounded-2xl p-3 border border-border/50">
-                <div className="text-[9px] font-black text-muted-foreground mb-1.5 tracking-wider uppercase">{label}</div>
-                <div className="text-sm font-black text-foreground font-mono">{(value * 100).toFixed(0)}%</div>
-                <div className="mt-2 h-1 bg-muted rounded-full overflow-hidden">
-                  <div
-                    className="h-full bg-primary rounded-full transition-all duration-1000"
-                    style={{ width: `${value * 100}%` }}
-                  />
-                </div>
+          {/* Metrics Grid: Reliability & Accuracy */}
+          <div className="grid grid-cols-2 gap-2 mb-6">
+            <div className="bg-accent/40 border border-border p-2 font-mono">
+              <p className="text-[7px] text-muted-foreground uppercase mb-1 font-bold">CONFIDENCE</p>
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] text-foreground/80">{(signal.source_reliability * 100).toFixed(0)}%</span>
+                <div className="w-10 h-0.5 bg-muted"><div className="h-full bg-primary" style={{ width: `${signal.source_reliability * 100}%` }} /></div>
               </div>
-            ))}
-          </div>
-
-          {/* ── Momentum + direction + trade score ── */}
-          <div className="flex items-center justify-between mb-4 px-1">
-            <div className="text-[10px] font-mono text-muted-foreground font-bold">
-              MOMENTUM: <span className={cn("font-black", momentumColor)}>{momentumLabel}</span>
             </div>
-            <div className={cn("text-[10px] font-black font-mono", directionColor)}>
-              {directionLabel}
-            </div>
-            <div className={cn("px-2 py-1 rounded-lg border text-[10px] font-black font-mono", actionBg, actionColor)}>
-              {action}
+            <div className="bg-accent/40 border border-border p-2 font-mono">
+              <p className="text-[7px] text-muted-foreground uppercase mb-1 font-bold">ACCURACY</p>
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] text-foreground/80">{(signal.historical_accuracy * 100).toFixed(0)}%</span>
+                <div className="w-10 h-0.5 bg-muted"><div className="h-full bg-blue-500" style={{ width: `${signal.historical_accuracy * 100}%` }} /></div>
+              </div>
             </div>
           </div>
 
-          {/* ── Trade button + breakdown toggle ── */}
-          <div className="flex items-center gap-3">
-            <button
+          {/* Status Bar: Momentum & Conviction */}
+          <div className="flex items-center justify-between border-t border-border pt-5 mb-5">
+            <div className="flex items-center gap-2">
+              <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">MOMENTUM:</span>
+              <span className={cn("text-[11px] font-mono font-bold uppercase", momentumColor)}>
+                {momentumValue > 0 ? "UPWARD" : "DOWNWARD"} {momentumLabel}
+              </span>
+            </div>
+            <div className="flex items-center gap-3">
+              <span className="text-[10px] font-bold text-emerald-500 uppercase flex items-center gap-1">BUY <TrendingUp size={10}/></span>
+              <div className={cn("px-2 py-1 bg-emerald-500/10 border border-emerald-500/20 text-[10px] font-bold flex items-center gap-1", actionColor)}>
+                {action}
+              </div>
+            </div>
+          </div>
+
+          <div className="flex-1" />
+          {/* Actions */}
+          <div className="flex gap-3">
+            <button 
               onClick={() => setShowQuote(true)}
-              className={cn(
-                "flex-1 flex items-center justify-center gap-3",
-                "px-6 py-4 rounded-2xl text-xs font-black transition-all",
-                "relative overflow-hidden group/btn shadow-xl shadow-primary/10",
-                isActionable
-                  ? 'bg-primary hover:bg-primary/90 text-primary-foreground'
-                  : 'bg-secondary hover:bg-muted text-muted-foreground border border-border'
-              )}
+              className="flex-1 bg-blue-600 text-white py-4 text-[8px] font-bold uppercase tracking-[0.2em] hover:bg-blue-500 transition-all flex items-center justify-center gap-2 shadow-[0_0_20px_rgba(37,99,235,0.3)] hover:shadow-[0_0_30px_rgba(37,99,235,0.5)]"
             >
-              {isActionable && (
-                <span className="absolute inset-0 rounded-2xl bg-white/20 opacity-0 group-hover/btn:opacity-100 transition-opacity pointer-events-none" />
-              )}
-              <Zap size={14} className={isActionable ? "animate-pulse" : ""} />
-              EXECUTE_TRADE
+              <Zap size={14} fill="currentColor" /> EXECUTE_TRADE
             </button>
-
-            {/* Breakdown toggle */}
-            <button
-              onClick={() => setExpanded(prev => !prev)}
-              className="p-4 rounded-2xl border border-border bg-card hover:bg-secondary text-muted-foreground hover:text-foreground transition-all shadow-sm"
-              title="View reasoning"
+            <button 
+              onClick={() => window.open(`https://app.bayse.markets/market/${signal.eventId}`, '_blank')}
+              className="px-5 bg-emerald-600/20 border border-emerald-500/30 text-emerald-400 hover:bg-emerald-600/30 hover:text-emerald-300 transition-all flex items-center justify-center gap-2 text-[10px] font-bold uppercase tracking-widest"
             >
-              {expanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+              <ArrowUpRight size={14} /> BAYSE
+            </button>
+            <button 
+              onClick={() => setExpanded(!expanded)}
+              className="px-5 border border-border bg-accent text-muted-foreground hover:text-foreground transition-colors flex items-center justify-center"
+            >
+              {expanded ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
             </button>
           </div>
         </div>
 
-        {/* ── Expanded breakdown panel ── */}
+        {/* Expansion: Conviction Index & Logic */}
         {expanded && (
-          <div className="border-t border-border px-8 py-6 space-y-6 bg-secondary/20">
-
-            {/* Score bar */}
+          <div className="bg-accent/20 border-t border-border p-5 space-y-4 animate-in fade-in slide-in-from-top-2 duration-300">
             <div>
-              <div className="flex justify-between text-[10px] font-black text-muted-foreground mb-2 uppercase tracking-widest">
+              <div className="flex justify-between text-[8px] font-bold text-muted-foreground uppercase mb-2">
                 <span>TRADE_SCORE_INDEX</span>
-                <span className={cn("font-black", actionColor)}>{score.toFixed(0)} / 100</span>
+                <span className={actionColor}>{score.toFixed(0)} / 100</span>
               </div>
-              <div className="h-1.5 bg-muted rounded-full overflow-hidden">
-                <div
-                  className={cn("h-full rounded-full transition-all duration-1000", 
-                    score >= 75 ? 'bg-green-500'
-                    : score >= 58 ? 'bg-blue-500'
-                      : score >= 42 ? 'bg-muted-foreground/40'
-                        : 'bg-red-500'
-                  )}
-                  style={{ width: `${score}%` }}
-                />
+              <div className="h-1 bg-muted w-full">
+                <div className={cn("h-full transition-all duration-700", actionColor.replace('text', 'bg'))} style={{ width: `${score}%` }} />
               </div>
             </div>
 
-            {/* Recommendation reasoning */}
-            <div className="bg-background/50 p-4 rounded-2xl border border-border">
-              <div className="text-[10px] font-black text-muted-foreground mb-2 uppercase tracking-widest">RECOMMENDATION</div>
-              <p className="text-xs text-foreground/80 leading-relaxed font-medium">{reasoning}</p>
+            <div className="bg-muted/50 p-4 border border-border relative group/rec">
+              <div className="absolute left-0 top-0 bottom-0 w-0.5 bg-primary/40" />
+              <div className="text-[8px] font-bold text-muted-foreground uppercase tracking-widest mb-2">RECOMMENDATION</div>
+              <p className="text-[10px] text-foreground leading-relaxed font-bold tracking-tight">
+                {signal.recommendation || (signal.probability > 0.65 ? "Institutional assessment suggests strong convergence. Accumulate position while divergence remains above 10%." : "Maintain neutral exposure. Monitor target vectors for high-conviction entry signals.")}
+              </p>
             </div>
 
-            {/* Gemini's raw logic */}
-            <div>
-              <div className="text-[10px] font-black text-muted-foreground mb-2 uppercase tracking-widest">AI_ANALYSIS_LOGIC</div>
-              <LogicText text={signal.logic} />
+            <div className="space-y-2">
+               <div className="flex items-center justify-between">
+                 <div className="flex items-center gap-2 text-[8px] font-bold text-muted-foreground uppercase">AI_ANALYSIS_LOGIC</div>
+                 <button 
+                  onClick={() => setLogicExpanded(!logicExpanded)}
+                  className="text-[8px] font-bold text-primary hover:text-primary/80 uppercase tracking-widest transition-colors flex items-center gap-1"
+                 >
+                   {logicExpanded ? "Read less ↑" : "Read more ↓"}
+                 </button>
+               </div>
+               <p className={cn(
+                 "text-[10px] text-muted-foreground leading-relaxed font-mono transition-all duration-300",
+                 !logicExpanded && "line-clamp-4"
+               )}>
+                 {signal.logic}
+               </p>
             </div>
-
-            {/* Fallback external link for power users */}
-            <a
-              href={`https://app.bayse.markets/market/${signal.eventId}`}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex items-center gap-2 text-[10px] font-black text-primary hover:underline transition-all"
-            >
-              Open Raw Data on Bayse <ArrowRight size={12} />
-            </a>
           </div>
         )}
       </div>
+
+      {showQuote && (
+        <QuoteDrawer 
+          eventId={signal.eventId}
+          marketId={signal.marketId}
+          engine="AMM"
+          currencyProp={currency}
+          aiProbability={Number(signal.probability)}
+          yesOutcomeId={signal.yesOutcomeId}
+          noOutcomeId={signal.noOutcomeId}
+          onClose={() => setShowQuote(false)} 
+        />
+      )}
     </>
   );
 }

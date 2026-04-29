@@ -1,18 +1,39 @@
 "use client";
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useMemo } from 'react';
 import Sidebar from '@/components/layout/Sidebar';
 import MarketCard from '@/features/bayse-trading/MarketCard';
-import SignalCard from '@/features/macro-feed/SignalCard';
+import RawMarketCard from '@/features/bayse-trading/RawMarketCard';
 import ConfidenceGauge from '@/components/charts/ConfidenceGauge';
 import OjaScore from '@/components/charts/OjaScore';
 import SystemLog from '@/components/layout/SystemLog';
-import { analyzeMarkets } from '@/lib/api-client';
+import TerminalTips from '@/components/layout/TerminalTips';
+import SignalCard from '@/features/macro-feed/SignalCard';
+import { analyzeMarkets, bayse } from '@/lib/api-client';
 import { MacroSignal } from '@/types/macro';
-import { LayoutGrid, Trophy, TrendingUp, TrendingDown, AlertTriangle, Minus, Brain, Search, X, Loader2, Bookmark } from 'lucide-react';
+import {
+  LayoutGrid,
+  Trophy,
+  Activity,
+  RefreshCcw,
+  Loader2,
+  TrendingUp,
+  TrendingDown,
+  AlertTriangle,
+  Minus,
+  Brain,
+  BrainCircuit,
+  Search,
+  X,
+  Filter, 
+  Bookmark,
+  Database,
+  Zap
+} from 'lucide-react';
 import { useBookmarks } from '@/hooks/useBookmarks';
 import { useLayout } from '@/context/LayoutContext';
 import { cn } from '@/lib/utils';
 
+// --- CONFIG ---
 /**
  * Main Macro Terminal Dashboard
  * 
@@ -85,8 +106,6 @@ function Leaderboard({ signals, currency = 'USD' }: { signals: MacroSignal[], cu
       </div>
 
       {ranked.map((s, i) => {
-        const cfg = SENTIMENT_CONFIG[s.sentiment] ?? SENTIMENT_CONFIG.NEUTRAL;
-        const Icon = cfg.icon;
         const scoreColor = s.score >= 75 ? 'text-green-400'
           : s.score >= 58 ? 'text-blue-400'
             : s.score >= 42 ? 'text-slate-400'
@@ -235,68 +254,81 @@ function IntelligenceTab({ signalsData }: { signalsData: SignalsData | null }) {
   );
 }
 
-/**
- * Root Dashboard Component
- * 
- * Manages the application's global state, including active tab,
- * filter settings, and the main data fetching lifecycle.
- */
+const SENTIMENT_TABS = [
+  { id: 'ALL', color: 'border-muted-foreground/40', text: 'text-muted-foreground', icon: Activity },
+  { id: 'BULLISH', color: 'border-emerald-500', text: 'text-emerald-500', icon: TrendingUp },
+  { id: 'BEARISH', color: 'border-rose-500', text: 'text-rose-500', icon: TrendingDown },
+  { id: 'RISK_ALERT', color: 'border-orange-500', text: 'text-orange-500', icon: AlertTriangle },
+  { id: 'NEUTRAL', color: 'border-primary', text: 'text-primary', icon: Minus },
+];
+
+const NAV_TABS = [
+  { id: 'scanner', label: 'Nodes', icon: <LayoutGrid size={12} />, color: 'primary' },
+  { id: 'leaderboard', label: 'Leaderboard', icon: <Trophy size={12} />, color: 'orange-500' },
+  { id: 'intelligence', label: 'Intelligence', icon: <BrainCircuit size={12} />, color: 'purple-500' }
+];
+
 export default function Dashboard() {
-  const [systemStatus, setSystemStatus] = useState("INITIALIZING");
   const [signalsData, setSignalsData] = useState<SignalsData | null>(null);
   const [sentimentFilter, setSentimentFilter] = useState<string>('ALL');
   const [categoryFilter, setCategoryFilter] = useState<string>('ALL');
-  const [showBookmarksOnly, setShowBookmarksOnly] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
   const [activeTab, setActiveTab] = useState<'scanner' | 'leaderboard' | 'intelligence'>('scanner');
   const [currency, setCurrency] = useState<'NGN' | 'USD'>('NGN');
   const [loading, setLoading] = useState(true);
+
+  // Load preferences from localStorage on mount
+  useEffect(() => {
+    const savedCurrency = localStorage.getItem('bayse_pref_currency');
+    if (savedCurrency === 'USD' || savedCurrency === 'NGN') setCurrency(savedCurrency);
+
+    const savedTab = localStorage.getItem('bayse_pref_tab');
+    if (savedTab === 'scanner' || savedTab === 'leaderboard' || savedTab === 'intelligence') setActiveTab(savedTab);
+
+    const savedSentiment = localStorage.getItem('bayse_pref_sentiment');
+    if (savedSentiment) setSentimentFilter(savedSentiment);
+
+    const savedCategory = localStorage.getItem('bayse_pref_category');
+    if (savedCategory) setCategoryFilter(savedCategory);
+  }, []);
+
+  // Save preferences when they change
+  useEffect(() => { localStorage.setItem('bayse_pref_currency', currency); }, [currency]);
+  useEffect(() => { localStorage.setItem('bayse_pref_tab', activeTab); }, [activeTab]);
+  useEffect(() => { localStorage.setItem('bayse_pref_sentiment', sentimentFilter); }, [sentimentFilter]);
+  useEffect(() => { localStorage.setItem('bayse_pref_category', categoryFilter); }, [categoryFilter]);
   const [lastUpdated, setLastUpdated] = useState("");
-  const [searchQuery, setSearchQuery] = useState("");
+  
+  const { isSidebarCollapsed } = useLayout();
+  const { toggleBookmark, isBookmarked } = useBookmarks();
+
+  const [rawMarkets, setRawMarkets] = useState<any[]>([]);
   const [searchResults, setSearchResults] = useState<any[]>([]);
   const [isSearching, setIsSearching] = useState(false);
   const [analyzedSearchResults, setAnalyzedSearchResults] = useState<Record<string, MacroSignal>>({});
   const [analyzingEventId, setAnalyzingEventId] = useState<string | null>(null);
-  const { bookmarks } = useBookmarks();
-  const { isSidebarCollapsed } = useLayout();
 
-  // Load initial currency from localStorage on mount
-  useEffect(() => {
-    const saved = localStorage.getItem('bayse_terminal_currency') as 'NGN' | 'USD';
-    if (saved && (saved === 'NGN' || saved === 'USD')) {
-      setCurrency(saved);
-    }
-  }, []);
-
-  // Save currency to localStorage whenever it changes
-  useEffect(() => {
-    localStorage.setItem('bayse_terminal_currency', currency);
-  }, [currency]);
-
-  /**
-   * Request AI Analysis for a specific search result
-   */
-  const requestAnalysis = async (eventId: string) => {
-    console.log("ANALYSIS_REQUESTED:", eventId);
-    setAnalyzingEventId(eventId);
+  const fetchSignals = useCallback(async (force = false, query = "") => {
+    setLoading(true);
     try {
-      const res = await fetch(`/api/analyze?eventId=${eventId}`);
-      const data = await res.json();
-      console.log("ANALYSIS_RESPONSE:", data);
-      if (data.signals && data.signals.length > 0) {
-        setAnalyzedSearchResults(prev => ({
-          ...prev,
-          [eventId]: data.signals[0]
-        }));
+      const data = await analyzeMarkets(force, currency, query);
+      setSignalsData(data);
+      if (query) {
+        setLastUpdated(`Search: "${query}" @ ${new Date().toLocaleTimeString()}`);
       } else {
-        alert("AI Analysis failed for this market. It may lack sufficient data.");
+        setLastUpdated(new Date().toLocaleTimeString());
       }
     } catch (err) {
-      console.error("ANALYSIS_REQUEST_ERROR:", err);
-      alert("AI Analysis service is currently busy. Please try again in a moment.");
+      console.error("Inference stream interrupted", err);
     } finally {
-      setAnalyzingEventId(null);
+      setLoading(false);
     }
-  };
+    // We intentionally exclude 'currency' from dependencies here because 
+    // switching display currency shouldn't trigger a full AI re-analysis.
+    // The MarketCard handles currency-based symbol switching locally.
+  }, []);
+
+  useEffect(() => { fetchSignals(); }, [fetchSignals]);
 
   /**
    * Market Search Handler
@@ -328,344 +360,363 @@ export default function Dashboard() {
   const clearSearch = () => {
     setSearchQuery("");
     setSearchResults([]);
+    fetchSignals(); // Restore the original dashboard signals
   };
 
   /**
-   * Data Fetching Handler
-   * 
-   * Triggers the analysis API. If 'force' is true, it bypasses the
-   * server-side cache for fresh results.
+   * Request AI Analysis for a specific search result
    */
-  const fetchSignals = useCallback(async (force = false) => {
-    setLoading(true);
-    setSystemStatus("ANALYZING");
+  const requestAnalysis = async (eventId: string) => {
+    console.log("ANALYSIS_REQUESTED:", eventId);
+    setAnalyzingEventId(eventId);
     try {
-      const data = await analyzeMarkets(force, currency);
-      setSignalsData(data);
-      setLastUpdated(new Date().toLocaleTimeString());
-      setSystemStatus("OPTIMAL");
+      const res = await fetch(`/api/analyze?eventId=${eventId}`);
+      const data = await res.json();
+      console.log("ANALYSIS_RESPONSE:", data);
+      if (data.signals && data.signals.length > 0) {
+        setAnalyzedSearchResults(prev => ({
+          ...prev,
+          [eventId]: data.signals[0]
+        }));
+      } else {
+        alert("AI Analysis failed for this market. It may lack sufficient data.");
+      }
     } catch (err) {
-      console.error("ANALYZE_ERROR:", err);
-      setSystemStatus("CONFIG_ERROR");
+      console.error("ANALYSIS_REQUEST_ERROR:", err);
+      alert("AI Analysis service is currently busy. Please try again in a moment.");
     } finally {
-      setLoading(false);
+      setAnalyzingEventId(null);
     }
-  }, []);
+  };
 
-  useEffect(() => { fetchSignals(); }, [fetchSignals, currency]);
+  // --- FILTER LOGIC ---
+  const categories = useMemo(() => {
+    const sets = new Set(signalsData?.signals?.map((s: any) => s.category).filter(Boolean));
+    return ['ALL', ...Array.from(sets)] as string[];
+  }, [signalsData]);
 
-  const globalConfidence = signalsData ? Math.round(signalsData.global_confidence * 100) : 0;
+  const topSignals = useMemo(() => {
+    return signalsData?.signals?.filter((s: any) => {
+      const matchesSentiment = sentimentFilter === 'ALL' || s.sentiment === sentimentFilter;
+      const matchesCategory = categoryFilter === 'ALL' || s.category === categoryFilter;
+      return matchesSentiment && matchesCategory;
+    }) ?? [];
+  }, [signalsData, sentimentFilter, categoryFilter]);
 
-  const filteredSignals = signalsData?.signals.filter((s) => {
-    const sentimentMatch = sentimentFilter === 'ALL' || s.sentiment === sentimentFilter;
-    const categoryMatch = categoryFilter === 'ALL' || s.category === categoryFilter;
-    const bookmarkMatch = !showBookmarksOnly || bookmarks.includes(s.marketId);
-    return sentimentMatch && categoryMatch && bookmarkMatch;
-  }) ?? [];
 
-  const categories = ['ALL', ...Array.from(new Set(signalsData?.signals.map(s => s.category).filter((c): c is string => Boolean(c)) ?? []))];
-    const TABS = [
-    { id: 'scanner', label: 'SIGNAL_CARDS', icon: <LayoutGrid size={12} />, activeClass: 'bg-blue-600 text-white' },
-    { id: 'leaderboard', label: 'LEADERBOARD', icon: <Trophy size={12} />, activeClass: 'bg-orange-500 text-white' },
-    { id: 'intelligence', label: 'INTELLIGENCE', icon: <Brain size={12} />, activeClass: 'bg-purple-600 text-white' },
-  ];
+
   return (
-    <div className="min-h-screen bg-background text-foreground transition-all duration-300 selection:bg-primary/20">
+    <div className="min-h-screen bg-background text-foreground font-sans selection:bg-primary/20">
       <Sidebar />
       <main className={cn(
-        "p-6 lg:p-12 transition-all duration-500 ease-in-out",
+        "flex flex-col min-h-screen transition-all duration-300 pt-16 lg:pt-0",
         isSidebarCollapsed ? "lg:ml-20" : "lg:ml-64"
       )}>
-        <div className="max-w-7xl mx-auto pt-16 lg:pt-0">
-          {/* Top Info Bar */}
-          <div className="flex flex-col md:flex-row items-start justify-between mb-12 gap-6">
+        <div className="flex-1 p-4 lg:p-6 max-w-[1800px] mx-auto w-full">
+          
+          {/* HEADER SECTION */}
+          <div className="flex flex-col md:flex-row md:items-center justify-between mb-6 border-b border-border pb-4 gap-4">
             <div>
-              <h1 className="text-3xl lg:text-5xl font-black text-slate-900 dark:text-white tracking-tighter uppercase italic mb-2">Terminal_v1.0</h1>
-              <p className="text-slate-500 text-[10px] font-mono mt-1 tracking-widest uppercase opacity-70 font-bold">
-                Live Macro Sentiment Analysis // Lagos, NG // LAST_SYNC: {lastUpdated || "—"}
+              <h1 className="text-4xl font-black text-foreground italic tracking-tighter relative group">
+                TERMINAL_V1.0
+              </h1>
+              <p className="text-[9px] font-mono uppercase text-muted-foreground mt-2 tracking-[0.2em] font-bold">
+                LIVE MACRO SENTIMENT ANALYSIS // LAGOS, NG // LAST_SYNC: {lastUpdated || "OFFLINE"}
               </p>
             </div>
-            <div className="flex flex-wrap gap-3 items-center">
-              {/* Search Bar */}
-              <form onSubmit={handleSearch} className="relative hidden sm:flex items-center gap-2">
-                <div className="relative">
-                  <input
+
+            <div className="flex flex-wrap items-center gap-3">
+              {/* SEARCH BAR */}
+              <form onSubmit={handleSearch} className="relative group flex-1 md:w-64 flex items-center gap-2">
+                <div className="relative flex-1">
+                  <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground/60 group-focus-within:text-primary transition-colors" />
+                  <input 
                     type="text"
-                    placeholder="SEARCH_MARKETS..."
+                    placeholder="Search_Markets..."
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
-                    className="bg-secondary border border-border focus:border-primary/50 px-10 py-2.5 rounded-xl text-[11px] font-black text-foreground outline-none w-48 lg:w-72 transition-all shadow-sm"
+                    className="w-full bg-card border border-border py-2 pl-10 pr-4 text-[11px] font-mono focus:outline-none focus:border-primary/50 transition-all placeholder:text-muted-foreground/40"
                   />
-                  <Search size={14} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-muted-foreground/60" />
                   {searchQuery && (
-                    <button type="button" onClick={clearSearch} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-white">
-                      <X size={14} />
-                    </button>
+                    <X 
+                      size={12} 
+                      className="absolute right-3 top-1/2 -translate-y-1/2 cursor-pointer text-muted-foreground hover:text-primary" 
+                      onClick={clearSearch} 
+                    />
                   )}
                 </div>
                 <button 
                   type="submit" 
                   disabled={isSearching}
-                  className="bg-blue-600 hover:bg-blue-500 p-2 rounded-xl text-white disabled:opacity-50 transition-colors"
+                  className="bg-primary/10 hover:bg-primary/20 p-2 border border-primary/20 text-primary disabled:opacity-50 transition-colors"
                 >
                   {isSearching ? <Loader2 size={14} className="animate-spin" /> : <Search size={14} />}
                 </button>
               </form>
 
-              <button
-                onClick={() => fetchSignals(true)}
-                disabled={loading}
-                className="bg-secondary border border-border hover:border-primary/50 px-4 py-2.5 rounded-xl text-[10px] font-black text-muted-foreground hover:text-primary transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-sm"
-              >
-                {loading ? "ANALYZING..." : "↻ REFRESH"}
-              </button>
-
-              {/* Currency Toggle */}
-              <div className="flex bg-secondary border border-border rounded-xl p-1 shadow-sm">
+              <div className="flex bg-card border border-border rounded-sm p-0.5">
                 {(['USD', 'NGN'] as const).map((c) => (
-                  <button
-                    key={c}
-                    onClick={() => setCurrency(c)}
-                    className={`px-4 py-1.5 rounded-lg text-[10px] font-black transition-all ${
-                      currency === c ? 'bg-primary text-white shadow-lg' : 'text-muted-foreground/60 hover:text-foreground'
-                    }`}
-                  >
-                    {c}
-                  </button>
+                  <button key={c} onClick={() => setCurrency(c)} className={cn(
+                    "px-3 py-1 text-[10px] font-bold uppercase transition-all",
+                    currency === c ? 'bg-foreground text-background' : 'text-muted-foreground hover:text-foreground'
+                  )}>{c}</button>
                 ))}
               </div>
-              <div className="hidden md:block bg-secondary border border-border px-4 py-2.5 rounded-xl text-[10px] font-black shadow-sm">
-                <span className="text-muted-foreground/60 uppercase tracking-widest mr-2">Status:</span>
-                <span className={`transition-colors duration-500 ${
-                  systemStatus === "OPTIMAL" ? "text-green-500 animate-pulse" :
-                  systemStatus === "INITIALIZING" || systemStatus === "ANALYZING" ? "text-primary animate-pulse" :
-                  "text-destructive"
-                }`}>{systemStatus}</span>
-              </div>
+              <button onClick={() => fetchSignals(true)} className="p-2 border border-border hover:bg-accent transition-colors">
+                <RefreshCcw size={14} className={cn(loading && "animate-spin text-primary")} />
+              </button>
             </div>
           </div>
 
-          {loading && !signalsData ? (
-            <div className="flex flex-col items-center justify-center h-64 gap-4">
-              <div className="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
-              <p className="text-slate-500 text-[10px] font-mono tracking-widest uppercase animate-pulse">
-                Fetching live markets & generating signals...
-              </p>
-            </div>
-          ) : (
-            <div className="grid grid-cols-12 gap-8 items-start">
-              {/* Primary Feed */}
-              <div className={`col-span-12 ${activeTab === 'intelligence' ? '' : 'lg:col-span-8'}`}>
-
-                {/* Tab Switcher */}
-              <div className="flex items-center gap-1 mb-10 bg-secondary border border-border rounded-2xl p-1.5 w-fit shadow-sm">
-                {TABS.map(({ id, label, icon, activeClass }) => (
-                  <button
-                    key={id}
-                    onClick={() => setActiveTab(id as any)}
-                    className={cn(
-                      "flex items-center gap-2.5 px-5 py-2.5 rounded-xl text-[10px] font-black transition-all",
-                      activeTab === id ? activeClass : "text-muted-foreground/60 hover:text-foreground"
-                    )}
-                  >
-                    {icon}
-                    <span className="hidden sm:inline uppercase tracking-widest">{label}</span>
-                  </button>
-                ))}
-              </div>
-
-              {/* SEARCH RESULTS VIEW */}
-              {searchResults.length > 0 ? (
-                <div className="space-y-6">
-                  <div className="flex items-center justify-between">
-                    <h2 className="text-xs font-black text-slate-500 uppercase tracking-widest">Search Results for "{searchQuery}"</h2>
-                    <button onClick={clearSearch} className="text-[10px] font-mono text-blue-500 hover:underline">Clear Results</button>
-                  </div>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    {searchResults.map((event: any) => {
-                      // If this event has been analyzed, show the MarketCard instead
-                      if (analyzedSearchResults[event.id]) {
-                        return <MarketCard key={event.id} signal={analyzedSearchResults[event.id]} currency={currency} />;
-                      }
-
-                      return (
-                        <div key={event.id} className="bg-card border border-border rounded-3xl p-6 group hover:border-primary/30 transition-all shadow-sm flex flex-col backdrop-blur-sm">
-                          <div className="flex justify-between items-start mb-6">
-                            <span className="text-[9px] font-black text-muted-foreground uppercase tracking-[0.2em] bg-secondary px-2 py-0.5 rounded-lg border border-border opacity-60">RAW_EVENT</span>
-                            <span className="text-[9px] font-black text-muted-foreground uppercase tracking-widest opacity-40">{event.category}</span>
-                          </div>
-                          <h3 className="text-foreground font-black text-lg mb-6 line-clamp-2 tracking-tight">{event.title}</h3>
-                          
-                          <div className="flex-1 space-y-3 mb-8">
-                            {event.markets.map((m: any) => (
-                              <div key={m.id} className="flex justify-between items-center bg-secondary/50 p-4 rounded-2xl border border-border/50 group/row hover:bg-secondary transition-colors">
-                                <span className="text-[11px] text-foreground/80 font-black uppercase tracking-tight">{m.title}</span>
-                                <div className="flex items-center gap-4">
-                                  <span className="text-[11px] font-black text-primary font-mono">{(m.outcome1Price * 100).toFixed(0)}%</span>
-                                  <a 
-                                    href={`https://app.bayse.markets/market/${event.id}`} 
-                                    target="_blank" 
-                                    rel="noopener noreferrer"
-                                    className="p-1.5 bg-primary/10 hover:bg-primary/20 text-primary rounded-lg transition-all"
-                                  >
-                                    <TrendingUp size={12} />
-                                  </a>
-                                </div>
-                              </div>
-                            ))}
-                          </div>
-
-                          <button 
-                            onClick={() => requestAnalysis(event.id)}
-                            disabled={analyzingEventId === event.id}
-                            className="w-full flex items-center justify-center gap-2 px-6 py-3 bg-primary hover:bg-primary/90 text-[10px] font-black text-primary-foreground rounded-2xl transition-all shadow-lg shadow-primary/20 disabled:opacity-50 uppercase tracking-widest"
-                          >
-                            {analyzingEventId === event.id ? (
-                              <Loader2 className="animate-spin" size={14} />
-                            ) : (
-                              <Brain size={14} />
-                            )}
-                            {analyzingEventId === event.id ? "ANALYZING..." : "RUN_AI_INTELLIGENCE"}
-                          </button>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              ) : activeTab === 'scanner' && (
-                  <>
-                    {/* Filter Bar */}
-                    <div className="flex flex-wrap gap-2 mb-6">
-                      {['ALL', 'BULLISH', 'BEARISH', 'RISK_ALERT', 'NEUTRAL'].map((s) => (
-                        <button
-                          key={s}
-                          onClick={() => setSentimentFilter(s)}
-                          className={cn(
-                            "text-[10px] font-black px-4 py-2 rounded-xl border transition-all shadow-sm",
-                            sentimentFilter === s
-                              ? s === 'BULLISH' ? 'bg-green-500/10 border-green-500/30 text-green-600 dark:text-green-400'
-                                : s === 'BEARISH' ? 'bg-red-500/10 border-red-500/30 text-red-600 dark:text-red-400'
-                                  : s === 'RISK_ALERT' ? 'bg-orange-500/10 border-orange-500/30 text-orange-600 dark:text-orange-400'
-                                    : s === 'NEUTRAL' ? 'bg-muted border-border text-muted-foreground'
-                                      : 'bg-primary/10 border-primary/30 text-primary'
-                              : 'bg-secondary border-border text-muted-foreground/60 hover:border-primary/20 hover:text-foreground'
-                          )}
-                        >
-                          {s}
-                        </button>
-                      ))}
-                      <div className="w-px bg-border mx-2" />
-                      {categories.map((c) => (
-                        <button
-                          key={c}
-                          onClick={() => setCategoryFilter(c)}
-                          className={cn(
-                            "text-[10px] font-black px-4 py-2 rounded-xl border transition-all shadow-sm",
-                            categoryFilter === c
-                              ? 'bg-foreground text-background border-foreground'
-                              : 'bg-secondary border-border text-muted-foreground/60 hover:border-primary/20 hover:text-foreground'
-                          )}
-                        >
-                          {c}
-                        </button>
-                      ))}
-
-                      {/* Bookmark Toggle */}
-                      <button
-                        onClick={() => setShowBookmarksOnly(prev => !prev)}
-                        className={`flex items-center gap-2 text-[9px] font-mono font-bold px-3 py-1.5 rounded-lg border transition-all ${
-                          showBookmarksOnly
-                            ? 'bg-blue-600/20 border-blue-500/50 text-blue-400 shadow-[0_0_10px_rgba(37,99,235,0.2)]'
-                            : 'bg-slate-900 border-slate-700 text-slate-500 hover:border-slate-500'
-                        }`}
-                      >
-                        <Bookmark size={10} fill={showBookmarksOnly ? "currentColor" : "none"} />
-                        BOOKMARKS ({bookmarks.length})
-                      </button>
-                    </div>
-
-                    {/* Legend Bar */}
-                    <div className="flex flex-wrap gap-4 mb-10 p-4 bg-secondary/40 border border-border rounded-2xl backdrop-blur-sm">
-                      {[
-                        { sentiment: "BULLISH", color: "text-green-600 dark:text-green-400", dot: "bg-green-500", action: "Buy YES — AI sees underpriced upside" },
-                        { sentiment: "BEARISH", color: "text-red-600 dark:text-red-400", dot: "bg-red-500", action: "Buy NO — crowd overpricing the outcome" },
-                        { sentiment: "RISK_ALERT", color: "text-orange-600 dark:text-orange-400", dot: "bg-orange-500", action: "Stay out — high uncertainty, thin data" },
-                        { sentiment: "NEUTRAL", color: "text-muted-foreground", dot: "bg-muted-foreground/30", action: "Monitor — no meaningful mispricing" },
-                      ].map(({ sentiment, color, dot, action }) => (
-                        <div key={sentiment} className="flex items-center gap-2.5">
-                          <div className={`w-1.5 h-1.5 rounded-full ${dot} shadow-sm`} />
-                          <span className={`text-[10px] font-black uppercase tracking-tight ${color}`}>{sentiment}</span>
-                          <span className="text-[10px] font-medium text-muted-foreground italic opacity-70">{action}</span>
-                        </div>
-                      ))}
-                    </div>
-
-
-                    {/* MARKET CARDS */}
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                      {filteredSignals.map((s, i) => (
-                        <MarketCard key={i} signal={s} currency={currency} />
-                      ))}
-                      {filteredSignals.length === 0 && (
-                        <p className="text-[10px] font-mono text-slate-600 col-span-2 text-center py-12">
-                          NO_SIGNALS_MATCH_FILTER
-                        </p>
+          <div className="grid grid-cols-12 gap-6">
+            
+            {/* LEFT COLUMN: PRIMARY WORKSPACE */}
+            <div className="col-span-12 lg:col-span-8 space-y-4">
+              
+              {/* TABS & FILTERS */}
+              <div className="bg-card border border-border rounded-sm overflow-hidden">
+                <div className="flex items-center gap-1 p-1 border-b border-border bg-accent/20">
+                  {NAV_TABS.map((tab) => (
+                    <button 
+                      key={tab.id} 
+                      onClick={() => setActiveTab(tab.id as any)} 
+                      className={cn(
+                        "flex-1 lg:flex-none flex items-center justify-center gap-2 px-6 py-2.5 text-[10px] font-bold uppercase transition-all border-b-2",
+                        activeTab === tab.id 
+                          ? `bg-${tab.color}/10 border-${tab.color} text-${tab.color}` 
+                          : "border-transparent text-muted-foreground hover:text-foreground hover:bg-accent/50",
+                        tab.id === 'intelligence' && "lg:hidden"
                       )}
-                    </div>
-                  </>
-                )}
-                {activeTab === 'leaderboard' && (
-                  <div className="bg-card border border-border rounded-2xl p-8 shadow-sm">
-                    <div className="flex items-center gap-3 mb-8">
-                      <div className="p-2 bg-orange-500/10 rounded-lg">
-                        <Trophy size={16} className="text-orange-500" />
-                      </div>
-                      <h2 className="text-sm font-black text-foreground uppercase tracking-[0.2em]">
-                        Divergence Leaderboard
-                      </h2>
-                      <span className="ml-auto text-[10px] font-black text-muted-foreground uppercase opacity-40">
-                        Ranked by AI vs Market gap
-                      </span>
-                    </div>
-                    <Leaderboard signals={signalsData?.signals ?? []} currency={currency} />
-                  </div>
-                )}
-                {/* Intelligence Tab */}
-                {activeTab === 'intelligence' && (
-                  <>
-                  <IntelligenceTab signalsData={signalsData} />
-                  </>
-                )}
-              </div>
-
-              {activeTab !== 'intelligence' && (
-                <div className="hidden lg:block lg:col-span-4 sticky top-12 h-fit space-y-8">
-                <div className="bg-card border border-border p-8 rounded-3xl shadow-sm backdrop-blur-sm">
-                  <h2 className="text-xs font-black text-muted-foreground uppercase tracking-[0.2em] mb-8 opacity-40">AI Synthesis</h2>
-                  <OjaScore signals={signalsData?.signals ?? []} />
-                  <ConfidenceGauge value={globalConfidence} />
-                  <div className="mt-8 pt-8 border-t border-border/50 space-y-4">
-                    <div className="flex justify-between text-[10px] font-black uppercase tracking-widest">
-                      <span className="text-muted-foreground/60">ACTIVE_SIGNALS</span>
-                      <span className="text-foreground">{signalsData?.active_signals ?? "—"}</span>
-                    </div>
-                    <div className="flex justify-between text-[10px] font-black uppercase tracking-widest">
-                      <span className="text-muted-foreground/60">DATA_POINTS</span>
-                      <span className="text-foreground">{signalsData?.data_points.toLocaleString() ?? "—"}</span>
-                    </div>
-                  </div>
-                </div>
-                <SystemLog />
-                <div className="space-y-6">
-                  <h2 className="text-xs font-black text-muted-foreground uppercase tracking-[0.2em] ml-2 opacity-40">Recent Logic</h2>
-                  {signalsData?.signals.map((s, i) => (
-                    <SignalCard key={i} signal={s} />
+                    >
+                      {tab.icon} {tab.label}
+                    </button>
                   ))}
                 </div>
+
+                {activeTab === 'scanner' && (
+                  <div className="p-3 flex flex-col gap-3">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Filter size={10} className="text-muted-foreground mr-2" />
+                      {SENTIMENT_TABS.map((tab) => (
+                         <button key={tab.id} onClick={() => setSentimentFilter(tab.id)} className={cn(
+                           "flex items-center gap-2 text-[9px] font-bold px-3 py-1.5 transition-all uppercase border rounded-none",
+                           sentimentFilter === tab.id ? `${tab.color} ${tab.text} bg-accent border-current/40` : "border-border text-muted-foreground hover:text-foreground"
+                         )}>
+                           <tab.icon size={10} /> {tab.id}
+                         </button>
+                      ))}
+                    </div>
+                    
+                    <div className="flex flex-wrap gap-2 pt-2 border-t border-border">
+                      {categories.map((cat) => (
+                        <button key={cat} onClick={() => setCategoryFilter(cat)} className={cn(
+                          "text-[8px] font-mono font-bold px-2 py-1 transition-all uppercase",
+                          categoryFilter === cat ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"
+                        )}>[ {cat} ]</button>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
-            )}
+
+              {/* CONTENT VIEWPORT */}
+              <div className={activeTab === 'intelligence' ? 'lg:hidden' : ''}>
+                {loading && !signalsData ? (
+                  <div className="h-96 flex flex-col items-center justify-center border border-border bg-card">
+                    <Loader2 className="animate-spin text-primary mb-4" size={32} />
+                    <span className="text-[10px] font-mono text-muted-foreground animate-pulse tracking-[0.5em]">SYNCING_GLOBAL_LEDGER</span>
+                  </div>
+                ) : (
+                  <>
+                    {/* SEARCH RESULTS VIEW */}
+                    {searchResults.length > 0 ? (
+                      <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+                        <div className="flex items-center justify-between">
+                          <h2 className="text-xs font-black text-muted-foreground uppercase tracking-widest flex items-center gap-2">
+                            <Search size={14} /> Search Results for "{searchQuery}"
+                          </h2>
+                          <button onClick={clearSearch} className="text-[10px] font-mono text-primary hover:underline">CLEAR_RESULTS</button>
+                        </div>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                          {searchResults.map((event: any) => {
+                            // If this event has been analyzed, show the MarketCard instead
+                            if (analyzedSearchResults[event.id]) {
+                              return <MarketCard key={event.id} signal={analyzedSearchResults[event.id]} currency={currency} />;
+                            }
+
+                            return (
+                              <div key={event.id} className="bg-card border border-border rounded-3xl p-6 group hover:border-primary/30 transition-all shadow-sm flex flex-col backdrop-blur-sm">
+                                <div className="flex justify-between items-start mb-6">
+                                  <span className="text-[9px] font-black text-muted-foreground uppercase tracking-[0.2em] bg-secondary px-2 py-0.5 rounded-lg border border-border opacity-60">RAW_EVENT</span>
+                                  <span className="text-[9px] font-black text-muted-foreground uppercase tracking-widest opacity-40">{event.category}</span>
+                                </div>
+                                <h3 className="text-foreground font-black text-lg mb-6 line-clamp-2 tracking-tight">{event.title}</h3>
+                                
+                                <div className="flex-1 space-y-3 mb-8">
+                                  {event.markets.map((m: any) => (
+                                    <div key={m.id} className="flex justify-between items-center bg-secondary/50 p-4 rounded-2xl border border-border/50 group/row hover:bg-secondary transition-colors">
+                                      <span className="text-[11px] text-foreground/80 font-black uppercase tracking-tight">{m.title}</span>
+                                      <div className="flex items-center gap-4">
+                                        <span className="text-[11px] font-black text-primary font-mono">{(m.outcome1Price * 100).toFixed(0)}%</span>
+                                        <a 
+                                          href={`https://app.bayse.markets/market/${event.id}`} 
+                                          target="_blank" 
+                                          rel="noopener noreferrer"
+                                          className="p-1.5 bg-primary/10 hover:bg-primary/20 text-primary rounded-lg transition-all"
+                                        >
+                                          <TrendingUp size={12} />
+                                        </a>
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+
+                                <button 
+                                  onClick={() => requestAnalysis(event.id)}
+                                  disabled={analyzingEventId === event.id}
+                                  className="w-full flex items-center justify-center gap-2 px-6 py-3 bg-primary hover:bg-primary/90 text-[10px] font-black text-primary-foreground rounded-2xl transition-all shadow-lg shadow-primary/20 disabled:opacity-50 uppercase tracking-widest"
+                                >
+                                  {analyzingEventId === event.id ? (
+                                    <Loader2 className="animate-spin" size={14} />
+                                  ) : (
+                                    <Brain size={14} />
+                                  )}
+                                  {analyzingEventId === event.id ? "ANALYZING..." : "RUN_AI_INTELLIGENCE"}
+                                </button>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    ) : activeTab === 'scanner' && (
+                      <div className="flex flex-col gap-8">
+                        {/* 1. TOP INTELLIGENCE (The 5-6 High Conviction Signals) */}
+                        <div className="space-y-4">
+                          <div className="flex items-center gap-3 px-4 py-2 bg-primary/5 border border-primary/10">
+                            <Zap size={12} className="text-primary" />
+                            <span className="text-[10px] font-bold text-primary uppercase tracking-widest">Top_Intelligence_Signals</span>
+                            <span className="ml-auto text-[8px] font-mono text-muted-foreground/40 uppercase">Vetted_Alpha_Nodes</span>
+                          </div>
+                          
+                          {topSignals.length > 0 ? (
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                              {topSignals.map((s: any, i: number) => (
+                                <MarketCard key={i} signal={s} currency={currency} />
+                              ))}
+                            </div>
+                          ) : !loading && (
+                            <div className="p-12 text-center border border-dashed border-border opacity-50">
+                               <p className="text-[10px] font-mono uppercase tracking-[0.3em]">No_Analyzed_Signals_Found</p>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                    {activeTab === 'leaderboard' && (
+                      <div className="bg-card border border-border rounded-2xl p-8 shadow-sm">
+                        <div className="flex items-center gap-3 mb-8">
+                          <div className="p-2 bg-orange-500/10 rounded-lg">
+                            <Trophy size={16} className="text-orange-500" />
+                          </div>
+                          <h2 className="text-sm font-black text-foreground uppercase tracking-[0.2em]">
+                            Divergence Leaderboard
+                          </h2>
+                          <span className="ml-auto text-[10px] font-black text-muted-foreground uppercase opacity-40">
+                            Ranked by AI vs Market gap
+                          </span>
+                        </div>
+                        <Leaderboard signals={signalsData?.signals ?? []} currency={currency} />
+                      </div>
+                    )}
+                    {activeTab === 'intelligence' && (
+                      <IntelligenceTab signalsData={signalsData} />
+                    )}
+                  </>
+                )}
+              </div>
             </div>
-          )}
+
+            {/* RIGHT COLUMN: PERSISTENT ANALYSIS (Desktop) */}
+            <div className="hidden lg:flex lg:col-span-4 flex-col gap-6">
+              <div className="border border-border bg-card p-5 rounded-none border-t-purple-500 border-t-2">
+                <div className="flex items-center justify-between mb-6">
+                  <h2 className="text-[10px] font-bold text-purple-400 uppercase tracking-[0.3em] flex items-center gap-2">
+                    <BrainCircuit size={14} /> Intelligence_Nexus
+                  </h2>
+                  <span className="text-[8px] font-mono text-muted-foreground">LIVE_FEED</span>
+                </div>
+                <ConfidenceGauge value={Math.round((signalsData?.global_confidence ?? 0) * 100)} />
+                
+                {/* Real-time Metrics */}
+                <div className="grid grid-cols-2 gap-4 mt-6 py-4 border-y border-border bg-accent/20">
+                   <div className="text-center">
+                      <p className="text-[8px] font-bold text-muted-foreground uppercase tracking-widest mb-1">Active_Signals</p>
+                      <p className="text-lg font-mono font-bold text-primary">{signalsData?.active_signals || 0}</p>
+                   </div>
+                   <div className="text-center border-l border-border">
+                      <p className="text-[8px] font-bold text-muted-foreground uppercase tracking-widest mb-1">Data_Points</p>
+                      <p className="text-lg font-mono font-bold text-blue-500">{signalsData?.data_points?.toLocaleString() || 0}</p>
+                   </div>
+                </div>
+
+                <div className="mt-6 pt-6 border-t border-border">
+                   <OjaScore signals={signalsData?.signals ?? []} />
+                </div>
+              </div>
+
+              <SystemLog />
+              <TerminalTips />
+
+              {/* RECENT LOGIC SECTION */}
+              <div className="flex flex-col gap-4">
+                 <div className="flex items-center justify-between mb-2">
+                    <h2 className="text-[10px] font-bold text-muted-foreground uppercase tracking-[0.3em]">RECENT_LOGIC</h2>
+                    <span className="text-[8px] font-mono text-muted-foreground/60">NODE_HISTORY</span>
+                 </div>
+                 
+                 <div className="space-y-3">
+                    {signalsData?.signals?.slice(0, 3).map((s: any, i: number) => (
+                      <div key={i} className="bg-card border border-border p-4 relative group hover:border-primary/30 transition-all">
+                        <div className="flex justify-between items-start mb-3">
+                           <span className={cn(
+                             "text-[8px] font-bold uppercase tracking-widest",
+                             s.sentiment === 'BULLISH' ? 'text-emerald-500' : 'text-orange-500'
+                           )}>
+                             {s.sentiment}_SIGNAL
+                           </span>
+                           <div className="flex items-center gap-3">
+                              <button onClick={() => toggleBookmark(s.marketId)}>
+                                <Bookmark size={10} fill={isBookmarked(s.marketId) ? "currentColor" : "none"} className={cn(isBookmarked(s.marketId) ? "text-primary" : "text-muted-foreground")} />
+                              </button>
+                              <span className="text-[8px] font-mono text-muted-foreground uppercase font-bold">CONF: {(s.source_reliability * 100).toFixed(0)}%</span>
+                           </div>
+                        </div>
+
+                        <p className="text-[8px] font-bold text-muted-foreground uppercase mb-1 leading-tight line-clamp-1">{s.eventTitle}</p>
+                        <h4 className="text-[11px] font-bold text-foreground mb-1 leading-tight group-hover:text-primary transition-colors line-clamp-2">{s.headline}</h4>
+                        <p className="text-[9px] text-muted-foreground italic font-mono mb-3 line-clamp-1">{s.marketTitle}</p>
+                        
+                        <p className="text-[9px] text-muted-foreground/80 leading-relaxed line-clamp-2 italic mb-4">
+                          {s.recommendation || s.logic}
+                        </p>
+
+                        <div className="pt-3 border-t border-border flex items-center justify-between">
+                           <span className="text-[8px] font-bold text-muted-foreground uppercase tracking-widest flex items-center gap-1">
+                             <Activity size={8} /> INSIGHTS
+                           </span>
+                           <div className="w-16 h-1 bg-accent">
+                              <div className={cn(
+                                "h-full",
+                                s.sentiment === 'BULLISH' ? 'bg-emerald-500' : 'bg-orange-500'
+                              )} style={{ width: `${(s.probability * 100)}%` }} />
+                           </div>
+                        </div>
+                      </div>
+                    ))}
+                 </div>
+              </div>
+            </div>
+          </div>
         </div>
       </main>
     </div>

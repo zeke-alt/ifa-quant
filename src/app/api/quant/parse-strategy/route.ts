@@ -65,13 +65,20 @@ export async function POST(req: Request) {
       },
     });
 
-    const responseText = result.text;
+    const responseText = result.text || result.response?.text?.() || "";
     if (!responseText) throw new Error("Gemini returned empty response");
 
-    const data = JSON.parse(responseText);
+    // Clean markdown if present
+    const cleanJson = responseText.replace(/```json|```/g, "").trim();
+    const data = JSON.parse(cleanJson);
+    
+    console.log("[Quant Optimization Result]:", data);
     return NextResponse.json(data);
-  } catch (err) {
+  } catch (err: any) {
     console.error("[Parse Strategy Error]:", err);
-    return NextResponse.json({ error: "Failed to process strategy" }, { status: 500 });
+    return NextResponse.json({ 
+      error: "Failed to process strategy", 
+      details: err.message 
+    }, { status: 500 });
   }
 }

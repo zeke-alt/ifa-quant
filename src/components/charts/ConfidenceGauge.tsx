@@ -1,74 +1,57 @@
-/**
- * Confidence Gauge Component
- * 
- * Renders a semi-circular gauge that visualizes a percentage value.
- * Used to display AI synthesis confidence and reliability scores.
- */
-
 "use client";
 import React from 'react';
 import { PieChart, Pie, Cell, ResponsiveContainer } from 'recharts';
 
 export default function ConfidenceGauge({ value = 75 }) {
-  /**
-   * Dynamic Color Logic
-   * 
-   * Calculates a HSL color based on the percentage value.
-   * - 0%   -> Red (0 degrees)
-   * - 50%  -> Yellow (60 degrees)
-   * - 100% -> Green (120 degrees)
-   */
-  const hue = (value / 100) * 120;
-  const dynamicColor = `hsl(${hue}, 80%, 45%)`;
+  // Bloomberg uses sharp transitions; oklch is great for that vivid "terminal" look
+  const dynamicColor = `oklch(0.7 0.2 ${140 + (value / 100) * 80})`; 
 
-  /**
-   * Data Preparation
-   * 
-   * We use two segments for the pie chart:
-   * 1. The 'filled' portion representing the actual value.
-   * 2. The 'remaining' portion representing the background track.
-   */
   const data = [
     { value: value },
     { value: 100 - value },
   ];
 
   return (
-    <div className="h-32 w-full relative flex items-center justify-center">
-      <ResponsiveContainer width="100%" height="100%">
-        <PieChart>
-          <Pie
-            data={data}
-            cx="50%"
-            cy="100%"
-            startAngle={180} 
-            endAngle={0}     
-            innerRadius={60}
-            outerRadius={80}
-            dataKey="value"
-            stroke="none"
-            isAnimationActive={true}
-          >
-            {/* The Active Segment (The Value) */}
-            <Cell fill={dynamicColor} className="transition-all duration-500" />
-            
-            {/* The Background Track */}
-            <Cell fill="var(--secondary)" /> 
-          </Pie>
-        </PieChart>
-      </ResponsiveContainer>
+    <div className="h-28 w-full relative flex flex-col items-center justify-end group mt-2">
+      <div className="absolute inset-0 top-[-20%]"> {/* Shift chart up slightly */}
+        <ResponsiveContainer width="100%" height="100%">
+          <PieChart>
+            <Pie
+              data={data}
+              cx="50%"
+              cy="90%" // Moved up from 100% to prevent clipping at bottom
+              startAngle={180} 
+              endAngle={0}     
+              innerRadius={50}
+              outerRadius={65}
+              paddingAngle={0}
+              dataKey="value"
+              stroke="none"
+              isAnimationActive={true}
+            >
+              <Cell 
+                fill={dynamicColor} 
+                className="transition-all duration-1000 ease-out" 
+              />
+              <Cell fill="currentColor" className="text-muted/20" /> 
+            </Pie>
+          </PieChart>
+        </ResponsiveContainer>
+      </div>
 
-      {/* Centered Text Overlay: Displays the numerical percentage */}
-      <div className="absolute bottom-2 flex flex-col items-center">
+      {/* Stats Overlay */}
+      <div className="relative z-10 flex flex-col items-center pb-1">
         <span 
-          className="text-2xl font-black transition-colors duration-500 tracking-tighter"
+          className="text-4xl font-mono font-bold tracking-tighter leading-none"
           style={{ color: dynamicColor }}
         >
-          {value}%
+          {value}<span className="text-[10px] ml-0.5 opacity-60">%</span>
         </span>
-        <span className="text-[10px] text-muted-foreground uppercase font-black tracking-widest opacity-60">
-          Reliability
-        </span>
+        <div className="flex flex-col items-center mt-1">
+          <span className="text-[8px] font-bold text-muted-foreground uppercase tracking-widest leading-none">
+            Confidence
+          </span>
+        </div>
       </div>
     </div>
   );

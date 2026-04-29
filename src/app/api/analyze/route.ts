@@ -35,7 +35,7 @@ const CACHE_DIR = path.join(process.cwd(), ".cache");
 
 
 function diskCachePath(currency: string) {
-  return path.join(CACHE_DIR, `signals-${currency}.json`);
+  return path.join(CACHE_DIR, `signals-${currency}-v2.json`);
 }
 
 function readDiskCache(currency: string): { data: any; timestamp: number } | null {
@@ -70,19 +70,22 @@ export async function GET(req: Request) {
   const force = searchParams.get("force") === "true";
   const eventId = searchParams.get("eventId");
   const currency = searchParams.get("currency") || "USD";
+  const query = searchParams.get("query");
 
 
-  if (!eventId && !force) {
+  const cacheKey = (!eventId && !query) ? "GLOBAL" : currency;
+  
+  if (!eventId && !force && !query) {
     // 1. Memory
-    if (memCache[currency] && Date.now() - memCache[currency].timestamp < CACHE_DURATION) {
-      console.log(`MEM_CACHE_HIT: Serving ${currency} signals from memory.`);
-      return Response.json(memCache[currency].data);
+    if (memCache[cacheKey] && Date.now() - memCache[cacheKey].timestamp < CACHE_DURATION) {
+      console.log(`MEM_CACHE_HIT: Serving ${cacheKey} signals from memory.`);
+      return Response.json(memCache[cacheKey].data);
     }
     // 2. Disk — survives server restarts
-    const disk = readDiskCache(currency);
+    const disk = readDiskCache(cacheKey);
     if (disk && Date.now() - disk.timestamp < CACHE_DURATION) {
-      console.log(`DISK_CACHE_HIT: Serving ${currency} signals from disk (${Math.round((Date.now() - disk.timestamp) / 60000)}m old).`);
-      memCache[currency] = disk; // promote to memory
+      console.log(`DISK_CACHE_HIT: Serving ${cacheKey} signals from disk (${Math.round((Date.now() - disk.timestamp) / 60000)}m old).`);
+      memCache[cacheKey] = disk; // promote to memory
       return Response.json(disk.data);
     }
   }
@@ -98,12 +101,24 @@ export async function GET(req: Request) {
       // Handle both { event: {...} } and {...} formats
       const event = data.event || (data.id ? data : null);
       events = event ? [event] : [];
+    } else if (query) {
+       console.log(
+         `ANALYSIS_START: Searching for "${query}" markets (${currency}) from Bayse...`,
+       );
+       // We use the 'search' parameter which is common in Bayse/Relay protocol
+       const data = await bayseRead(
+         `/v1/pm/events?status=open&limit=40&size=40&currency=${currency}&search=${encodeURIComponent(query)}`,
+       );
+       events = data.events ?? [];
     } else {
       console.log(
-        `ANALYSIS_START: Fetching live markets (${currency}) from Bayse...`,
+        `ANALYSIS_START: Fetching global macro markets for stable synthesis...`,
       );
+      // Logic: We fetch a broad set of markets without a currency filter.
+      // This ensures the "Global Confidence" and "Oja Score" are based on the 
+      // entire macro state, making them stable even when the user toggles display currency.
       const data = await bayseRead(
-        `/v1/pm/events?status=open&limit=30&size=30&currency=${currency}`,
+        `/v1/pm/events?status=open&limit=40&size=40`,
       );
       events = data.events ?? [];
     }
@@ -123,6 +138,8 @@ export async function GET(req: Request) {
         eventTitle: e.title,
         marketId: m.id,
         marketTitle: m.title,
+        yesOutcomeId: m.outcomes?.[0]?.id,
+        noOutcomeId: m.outcomes?.[1]?.id,
         yesProbability: m.outcome1Price,
         totalOrders: m.totalOrders,
         liquidity: e.liquidity,
@@ -167,12 +184,12 @@ export async function GET(req: Request) {
       : "";
 
     // Step 5: Construct the AI Prompt (The Alpha Filter)
-    const prompt = `You are an elite macro analyst. Analyze these live prediction markets.
+    const prompt = `You are an elite macro analyst. Analyze these live prediction markets${query ? ` specifically looking for signals related to "${query}"` : ""}.
 For each EVENT, you must identify and return ONLY the single most mispriced SELECTION (the "Alpha" trade).
 
 STRICT RULES:
 1. One Signal per Event: Even if an event has 10 markets, you only return ONE signal for that event—the one with the largest gap between your assessed probability and the market price.
-2. Demo Mode (Provide 5 to 6 Signals): For the dashboard display, provide exactly 5 to 6 high-conviction trades. Do not filter too aggressively, but prioritize the best opportunities.
+2. ${query ? `Search Mode: Return ALL interesting signals related to "${query}" from the provided data.` : `Demo Mode (Provide 10 to 12 Signals): For the dashboard display, provide exactly 10 to 12 high-conviction trades. Do not filter too aggressively, but prioritize the best opportunities.`}
 3. Unique Headline: The headline must be specific to the SELECTION you chose, not just the event title.
 4. Reliability Fusion: Your "source_reliability" MUST be a fusion of your logical conviction AND the provided "market_math". If liquidity_quality is low (< 0.3), you MUST downgrade your reliability score regardless of how sure your logic is. Mention this in your logic.
 5. News Context: Use the provided LATEST MACRO NEWS to inform your market sentiment and reasoning. If news directly relates to a market, reference it in your "logic".
@@ -196,13 +213,16 @@ Return a JSON object:
       "probability": <your YES probability 0-1>,
       "sentiment": <"BULLISH" | "BEARISH" | "RISK_ALERT" | "NEUTRAL">,
       "direction": <"BUY_YES" | "BUY_NO" | "WAIT">,
-      "logic": <2 paragraph reasoning. If reliability is low due to market_math, explain why.>,
+      "recommendation": <A short, 1-sentence actionable summary>,
+      "logic": <2-3 sentences of concise reasoning.>,
       "source_reliability": <your 0-1 FUSED confidence score (Logic + Market Math)>,
       "historical_accuracy": <0-1>,
       "category": <copy exact>,
       "feeRate": <copy exact>,
-      "yesProbability": <copy exact price>
-      "liquidity": <copy the liquidity field exactly from the market data>,
+      "yesProbability": <copy exact price>,
+      "yesOutcomeId": <copy exact>,
+      "noOutcomeId": <copy exact>,
+      "liquidity": <copy the liquidity field exactly from the market data>
     }
   ]
 }
@@ -215,14 +235,37 @@ Find the alpha. Focus on Nigerian/African macro context.`;
       contents: prompt,
       config: {
         responseMimeType: "application/json",
-        maxOutputTokens: 4096,
+        maxOutputTokens: 8192,
       },
     });
 
-    const responseText = result.text;
+    let responseText = result.text;
     if (!responseText) throw new Error("Vertex AI returned no text");
 
-    const signals = JSON.parse(responseText);
+    // Clean response text (remove markdown blocks if present)
+    responseText = responseText.replace(/```json/g, "").replace(/```/g, "").trim();
+
+    let signals: any;
+    try {
+      signals = JSON.parse(responseText);
+    } catch (parseErr) {
+      console.warn("JSON_PARSE_FAILED, attempting repair...", parseErr);
+      try {
+        // Advanced repair: cut off the response at the last valid signal boundary
+        let repaired = responseText;
+        const lastBoundary = repaired.lastIndexOf("},{");
+        if (lastBoundary !== -1) {
+          repaired = repaired.substring(0, lastBoundary + 1) + "]}";
+          signals = JSON.parse(repaired);
+          console.log("JSON_REPAIR_SUCCESS: Recovered partial signals.");
+        } else {
+          throw new Error("No safe recovery point found.");
+        }
+      } catch (retryErr) {
+        console.error("REPAIR_FAILED:", retryErr);
+        throw parseErr;
+      }
+    }
 
     // Step 6: Post-Processing Deduplication & Stability Latching
     // Ensure we only have one signal per eventId even if AI hallucinated
@@ -236,7 +279,7 @@ Find the alpha. Focus on Nigerian/African macro context.`;
     // Apply Stability Latch
     signals.signals = signals.signals.map((s: any) => {
       const prev = signalHistory[s.marketId];
-      if (prev) {
+      if (prev && prev.yesOutcomeId && prev.noOutcomeId) {
         const delta = Math.abs(
           Number(s.probability) - Number(prev.probability),
         );
@@ -249,6 +292,9 @@ Find the alpha. Focus on Nigerian/African macro context.`;
             ...s,
             probability: prev.probability,
             logic: prev.logic, // Keep reasoning consistent too
+            recommendation: prev.recommendation, // Keep recommendation consistent too
+            yesOutcomeId: prev.yesOutcomeId,
+            noOutcomeId: prev.noOutcomeId,
             market_question: s.marketTitle,
           };
         }
@@ -261,10 +307,10 @@ Find the alpha. Focus on Nigerian/African macro context.`;
 
     // Update both memory and disk cache
     const timestamp = Date.now();
-    memCache[currency] = { data: signals, timestamp };
-    writeDiskCache(currency, signals, timestamp);
+    memCache[cacheKey] = { data: signals, timestamp };
+    writeDiskCache(cacheKey, signals, timestamp);
     console.log(
-      `GEMINI_SUCCESS: Generated ${signals.signals.length} unique alpha signals for ${currency}. Written to disk.`,
+      `GEMINI_SUCCESS: Generated ${signals.signals.length} unique alpha signals for ${cacheKey}. Written to disk.`,
     );
 
     return Response.json(signals);

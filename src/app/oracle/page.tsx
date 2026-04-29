@@ -3,7 +3,7 @@ import React, { useState, useEffect, useRef, useCallback } from "react";
 import Sidebar from "@/components/layout/Sidebar";
 import { analyzeMarkets } from "@/lib/api-client";
 import { MacroSignal } from "@/types/macro";
-import { Send, Loader2, Zap, TrendingUp, AlertTriangle, BarChart2, Info } from "lucide-react";
+import { Send, Loader2, Zap, TrendingUp, AlertTriangle, BarChart2, Info, Activity, BrainCircuit } from "lucide-react";
 import { useLayout } from "@/context/LayoutContext";
 import { cn } from "@/lib/utils";
 
@@ -25,14 +25,13 @@ const SUGGESTED_PROMPTS = [
   "Explain the CBN rate decision signal",
   "Which markets should I avoid today?",
   "What's the overall macro sentiment for Nigeria?",
-  "Compare BULLISH signals and rank them",
 ];
 
 export default function OraclePage() {
   const [messages, setMessages] = useState<Message[]>([
     {
       role: "assistant",
-      content: `Ẹ káàbọ̀. I am **Ifa** — the macroeconomic oracle of Oja Intelligence.\n\nI have access to your live Bayse market signals, trade scores, and AI reasoning. Ask me anything about current market opportunities, signal reliability, or Nigerian macro conditions.\n\n*What would you like to know?*`,
+      content: `Ẹ káàbọ̀. I am **Ifa** — the macroeconomic oracle of Oja Intelligence.\n\nI have access to your live Bayse market signals, trade scores, and AI reasoning. Ask me anything about current market opportunities, signal reliability, or Nigerian macro conditions.`,
     },
   ]);
   const [input, setInput] = useState("");
@@ -44,7 +43,6 @@ export default function OraclePage() {
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const { isSidebarCollapsed } = useLayout();
 
-  // Load signals
   useEffect(() => {
     analyzeMarkets()
       .then((data) => setSignals(data.signals ?? []))
@@ -52,7 +50,6 @@ export default function OraclePage() {
       .finally(() => setSignalsLoading(false));
   }, []);
 
-  // Load trade history from localStorage
   useEffect(() => {
     try {
       const saved = localStorage.getItem("oja_trade_history");
@@ -60,7 +57,6 @@ export default function OraclePage() {
     } catch {}
   }, []);
 
-  // Scroll to bottom on new message
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
@@ -108,229 +104,147 @@ export default function OraclePage() {
     }
   };
 
-  // Improved markdown-ish renderer
   const renderContent = (text: string) => {
-    return text
-      .split("\n")
-      .map((line, i) => {
-        if (line.trim() === "") return <br key={i} />;
-        
-        // Handle list items
-        if (line.startsWith("- ")) {
-          return (
-            <li key={i} className="ml-4 list-disc text-muted-foreground mb-1">
-              {renderLineParts(line.slice(2))}
-            </li>
-          );
-        }
-
-        // Handle full-line bold headers
-        if (line.startsWith("**") && line.endsWith("**")) {
-          return (
-            <p key={i} className="font-black text-foreground mb-2 mt-4 first:mt-0">
-              {renderLineParts(line.slice(2, -2))}
-            </p>
-          );
-        }
-
-        return (
-          <p key={i} className="text-muted-foreground mb-2">
-            {renderLineParts(line)}
-          </p>
-        );
-      });
+    return text.split("\n").map((line, i) => {
+      if (line.trim() === "") return <br key={i} />;
+      if (line.startsWith("- ")) return <li key={i} className="ml-4 list-disc text-muted-foreground mb-1 font-mono text-[11px]">{renderLineParts(line.slice(2))}</li>;
+      return <p key={i} className="text-muted-foreground mb-2 font-mono text-[11px] leading-relaxed">{renderLineParts(line)}</p>;
+    });
   };
 
-  // Helper to render inline elements (bold, links, raw URLs)
   const renderLineParts = (line: string) => {
-    // Regex to split by Markdown links [text](url), Bold **text**, or raw URLs
     const parts = line.split(/(\*\*.*?\*\*|\[.*?\]\(.*?\)|https?:\/\/[^\s]+)/g);
-    
     return parts.map((part, j) => {
       if (!part) return null;
-
-      // Handle Bold
-      if (part.startsWith("**") && part.endsWith("**")) {
-        return (
-          <strong key={j} className="text-foreground font-black">
-            {part.slice(2, -2)}
-          </strong>
-        );
-      }
-
-      // Handle Markdown Links [text](url)
+      if (part.startsWith("**") && part.endsWith("**")) return <strong key={j} className="text-foreground font-bold">{part.slice(2, -2)}</strong>;
       if (part.startsWith("[") && part.includes("](")) {
         const match = part.match(/\[(.*?)\]\((.*?)\)/);
-        if (match) {
-          return (
-            <a 
-              key={j} 
-              href={match[2]} 
-              target="_blank" 
-              rel="noopener noreferrer" 
-              className="text-primary hover:underline font-black transition-colors"
-            >
-              {match[1]}
-            </a>
-          );
-        }
+        if (match) return <a key={j} href={match[2]} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline font-bold">{match[1]}</a>;
       }
-
-      // Handle Raw URLs
-      if (part.startsWith("http")) {
-        return (
-          <a 
-            key={j} 
-            href={part} 
-            target="_blank" 
-            rel="noopener noreferrer" 
-            className="text-primary hover:underline break-all transition-colors"
-          >
-            {part}
-          </a>
-        );
-      }
-
-      // Plain text
+      if (part.startsWith("http")) return <a key={j} href={part} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline break-all">{part}</a>;
       return part;
     });
   };
 
   return (
-    <div className="min-h-screen bg-background text-foreground transition-all duration-300">
+    <div className="min-h-screen bg-background text-foreground transition-all duration-300 selection:bg-primary/20">
       <Sidebar />
 
       <main className={cn(
-        "flex flex-col h-screen transition-all duration-500 ease-in-out pt-16 lg:pt-0",
+        "flex flex-col h-screen transition-all duration-300 pt-16 lg:pt-0",
         isSidebarCollapsed ? "lg:ml-20" : "lg:ml-64"
       )}>
         {/* Header */}
-        <div className="shrink-0 border-b border-border px-6 py-4 flex items-center justify-between bg-background/80 backdrop-blur-xl z-10">
-          <div className="flex items-center gap-3">
-            <div className="relative">
-              <div className="w-10 h-10 rounded-2xl bg-linear-to-br from-orange-500 to-amber-600 flex items-center justify-center text-lg font-black text-white shadow-lg shadow-orange-500/20">
-                Ọ
-              </div>
-              <div className="absolute -bottom-0.5 -right-0.5 w-3 h-3 bg-green-500 rounded-full border-2 border-background" />
+        <div className="shrink-0 border-b border-border px-6 py-4 flex items-center justify-between bg-card">
+          <div className="flex items-center gap-4">
+            <div className="w-10 h-10 border border-orange-500/40 bg-background flex items-center justify-center text-lg font-bold text-orange-500">
+              Ọ
             </div>
             <div>
-              <h1 className="text-sm font-black text-foreground tracking-tight uppercase">Ifá Oracle</h1>
-              <p className="text-[10px] font-mono text-muted-foreground tracking-widest font-bold">
-                {signalsLoading ? "LOADING_SIGNALS..." : `${signals.length}_SIGNALS_LOADED // LIVE`}
+              <h1 className="text-sm font-bold text-foreground tracking-widest uppercase">Ifá Oracle</h1>
+              <p className="text-[9px] font-mono text-muted-foreground tracking-widest uppercase">
+                {signalsLoading ? "INITIALIZING_NODES..." : `${signals.length}_SIGNALS_LOADED // LIVE_ACCESS`}
               </p>
             </div>
           </div>
 
-          {/* Signal summary pills */}
-          <div className="hidden md:flex gap-2">
+          <div className="hidden md:flex gap-3">
             {[
-              { label: "BULLISH", count: signals.filter(s => s.sentiment === "BULLISH").length, color: "text-green-500 bg-green-500/10 border-green-500/20" },
-              { label: "BEARISH", count: signals.filter(s => s.sentiment === "BEARISH").length, color: "text-red-500 bg-red-500/10 border-red-500/20" },
-              { label: "RISK", count: signals.filter(s => s.sentiment === "RISK_ALERT").length, color: "text-orange-500 bg-orange-500/10 border-orange-500/20" },
+              { label: "BULLISH", count: signals.filter(s => s.sentiment === "BULLISH").length, color: "text-emerald-500 bg-emerald-500/5 border-emerald-500/10" },
+              { label: "BEARISH", count: signals.filter(s => s.sentiment === "BEARISH").length, color: "text-rose-500 bg-rose-500/5 border-rose-500/10" },
+              { label: "RISK", count: signals.filter(s => s.sentiment === "RISK_ALERT").length, color: "text-orange-500 bg-orange-500/5 border-orange-500/10" },
             ].map(({ label, count, color }) => (
-              <div key={label} className={`text-[10px] font-black px-3 py-1.5 rounded-xl border ${color}`}>
+              <div key={label} className={cn("text-[9px] font-bold px-3 py-1 border uppercase tracking-widest", color)}>
                 {label}: {count}
               </div>
             ))}
           </div>
         </div>
 
-        {/* Messages */}
-        <div className="flex-1 overflow-y-auto px-4 md:px-12 py-6 space-y-8 no-scrollbar">
+        {/* Chat Space */}
+        <div className="flex-1 overflow-y-auto px-6 lg:px-12 py-8 space-y-8 no-scrollbar bg-accent/10">
           {messages.map((msg, i) => (
-            <div
-              key={i}
-              className={`flex gap-4 ${msg.role === "user" ? "flex-row-reverse" : "flex-row"}`}
-            >
-              {/* Avatar */}
+            <div key={i} className={cn("flex gap-4 max-w-4xl mx-auto", msg.role === "user" ? "flex-row-reverse" : "flex-row")}>
               <div className={cn(
-                "shrink-0 w-8 h-8 rounded-xl flex items-center justify-center text-xs font-black shadow-sm",
-                msg.role === "assistant"
-                  ? "bg-linear-to-br from-orange-500 to-amber-600 text-white"
-                  : "bg-secondary text-muted-foreground"
+                "shrink-0 w-8 h-8 border flex items-center justify-center text-xs font-bold",
+                msg.role === "assistant" ? "bg-orange-500/10 border-orange-500/30 text-orange-500" : "bg-card border-border text-muted-foreground"
               )}>
                 {msg.role === "assistant" ? "Ọ" : "U"}
               </div>
-
-              {/* Bubble */}
               <div className={cn(
-                "max-w-[80%] rounded-2xl px-6 py-4 text-sm leading-relaxed shadow-sm",
-                msg.role === "assistant"
-                  ? "bg-card border border-border text-foreground/90 font-medium"
-                  : "bg-primary text-primary-foreground font-bold shadow-lg shadow-primary/10"
+                "p-5 border relative",
+                msg.role === "assistant" ? "bg-card border-border text-foreground" : "bg-primary text-primary-foreground border-primary font-bold shadow-lg"
               )}>
-                {msg.role === "assistant" ? renderContent(msg.content) : msg.content}
+                {msg.role === "assistant" ? (
+                  <>
+                    <div className="absolute left-0 top-0 bottom-0 w-0.5 bg-orange-500/40" />
+                    {renderContent(msg.content)}
+                  </>
+                ) : (
+                  <p className="text-[11px] font-mono leading-relaxed">{msg.content}</p>
+                )}
               </div>
             </div>
           ))}
 
-          {/* Loading indicator */}
           {loading && (
-            <div className="flex gap-4">
-              <div className="w-8 h-8 rounded-xl bg-linear-to-br from-orange-500 to-amber-600 flex items-center justify-center text-xs font-black text-white shrink-0">
-                Ọ
-              </div>
-              <div className="bg-card border border-border rounded-2xl px-6 py-4 flex items-center gap-3 shadow-sm">
-                <div className="flex gap-1.5">
-                  {[0, 1, 2].map((i) => (
-                    <div
-                      key={i}
-                      className="w-1.5 h-1.5 bg-orange-500 rounded-full animate-bounce"
-                      style={{ animationDelay: `${i * 0.15}s` }}
-                    />
-                  ))}
-                </div>
-                <span className="text-[10px] font-black text-muted-foreground uppercase tracking-widest">CONSULTING_IFA...</span>
+            <div className="flex gap-4 max-w-4xl mx-auto">
+              <div className="w-8 h-8 border border-orange-500/40 bg-card flex items-center justify-center text-xs font-bold text-orange-500 shrink-0">Ọ</div>
+              <div className="bg-card border border-border p-5 flex items-center gap-3">
+                 <Loader2 size={14} className="animate-spin text-orange-500" />
+                 <span className="text-[9px] font-bold text-muted-foreground uppercase tracking-[0.4em]">CONSULTING_IFA_LEDGER...</span>
               </div>
             </div>
           )}
-
           <div ref={bottomRef} />
         </div>
 
-        {/* Suggested prompts */}
-        {messages.length === 1 && (
-          <div className="px-4 md:px-12 pb-6">
-            <div className="flex flex-wrap gap-2">
-              {SUGGESTED_PROMPTS.map((prompt) => (
-                <button
-                  key={prompt}
-                  onClick={() => sendMessage(prompt)}
-                  className="text-[10px] font-black text-muted-foreground bg-secondary hover:bg-muted border border-border hover:border-primary/30 hover:text-primary px-4 py-2 rounded-2xl transition-all shadow-sm"
-                >
-                  {prompt}
-                </button>
-              ))}
+        {/* Input & Suggestions */}
+        <div className="shrink-0 border-t border-border p-6 bg-card">
+          <div className="max-w-4xl mx-auto">
+            {messages.length === 1 && (
+              <div className="flex flex-wrap gap-2 mb-6">
+                {SUGGESTED_PROMPTS.map((prompt) => (
+                  <button key={prompt} onClick={() => sendMessage(prompt)} className="text-[9px] font-bold text-muted-foreground border border-border px-3 py-1.5 hover:border-primary/40 hover:text-primary transition-all uppercase tracking-widest bg-accent/20">
+                    {prompt}
+                  </button>
+                ))}
+              </div>
+            )}
+            
+            <div className="flex gap-4 items-end">
+              <div className="flex-1 bg-background border border-border focus-within:border-primary/50 p-4 transition-all shadow-inner">
+                <textarea
+                  ref={inputRef}
+                  value={input}
+                  onChange={(e) => setInput(e.target.value)}
+                  onKeyDown={handleKeyDown}
+                  placeholder="Ask Ifa Oracle..."
+                  rows={1}
+                  className="w-full bg-transparent text-[11px] font-mono text-foreground placeholder:text-muted-foreground/40 resize-none outline-none no-scrollbar"
+                  style={{ maxHeight: "120px" }}
+                />
+              </div>
+              <button
+                onClick={() => sendMessage(input)}
+                disabled={loading || !input.trim()}
+                className="w-12 h-12 bg-primary hover:bg-primary/90 disabled:bg-muted disabled:text-muted-foreground text-primary-foreground flex items-center justify-center transition-all shrink-0 shadow-lg"
+              >
+                {loading ? <Loader2 size={18} className="animate-spin" /> : <Send size={18} />}
+              </button>
+            </div>
+            
+            <div className="mt-4 flex items-center justify-center gap-6">
+               <div className="flex items-center gap-2">
+                  <Activity size={10} className="text-muted-foreground/40" />
+                  <p className="text-[8px] font-bold text-muted-foreground/40 uppercase tracking-[0.3em]">Neural_Inference_Stream</p>
+               </div>
+               <div className="flex items-center gap-2">
+                  <BrainCircuit size={10} className="text-muted-foreground/40" />
+                  <p className="text-[8px] font-bold text-muted-foreground/40 uppercase tracking-[0.3em]">Vertex_AI_Optimized</p>
+               </div>
             </div>
           </div>
-        )}
-
-        {/* Input */}
-        <div className="shrink-0 border-t border-border px-4 md:px-12 pt-6 pb-12 md:pb-6 bg-background/80 backdrop-blur-xl">
-          <div className="flex gap-4 items-end max-w-4xl mx-auto">
-            <div className="flex-1 bg-card border border-border focus-within:border-primary/50 focus-within:ring-4 focus-within:ring-primary/5 rounded-2xl px-5 py-4 transition-all shadow-sm">
-              <textarea
-                ref={inputRef}
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                onKeyDown={handleKeyDown}
-                placeholder="Ask Ifa anything about the markets..."
-                rows={1}
-                className="w-full bg-transparent text-sm text-foreground placeholder:text-muted-foreground/50 resize-none outline-none font-medium no-scrollbar"
-                style={{ maxHeight: "120px" }}
-              />
-            </div>
-            <button
-              onClick={() => sendMessage(input)}
-              disabled={loading || !input.trim()}
-              className="w-12 h-12 rounded-2xl bg-primary hover:bg-primary/90 disabled:bg-muted disabled:text-muted-foreground text-primary-foreground flex items-center justify-center transition-all shadow-lg shadow-primary/20 shrink-0"
-            >
-              {loading ? <Loader2 size={18} className="animate-spin" /> : <Send size={18} />}
-            </button>
-          </div>
-          <p className="text-center text-[9px] font-black text-muted-foreground mt-4 uppercase tracking-[0.3em] opacity-40">
-            IFA_ORACLE // POWERED BY GEMINI + LIVE BAYSE DATA // OJA INTELLIGENCE
-          </p>
         </div>
       </main>
     </div>
