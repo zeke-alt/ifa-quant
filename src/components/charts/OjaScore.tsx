@@ -116,7 +116,7 @@ export default function OjaScore({ signals }: OjaScoreProps) {
             { label: 'Sentiment', value: components.sentiment, color: 'text-sky-500', bar: 'bg-sky-500', icon: MessageSquare },
             { label: 'Reliability', value: components.confidence, color: 'text-purple-500', bar: 'bg-purple-500', icon: TrendingUp },
           ].map(({ label, value, color, bar, icon: Icon }) => (
-            <div key={label} className="bg-white/[0.02] border border-white/5 p-2 font-mono">
+            <div key={label} className="bg-white/2 border border-white/5 p-2 font-mono">
               <div className="flex justify-between items-center mb-1.5">
                 <div className="flex items-center gap-1.5">
                   <Icon size={10} className={cn("opacity-40", color)} />

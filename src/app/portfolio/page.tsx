@@ -57,7 +57,7 @@ function PortfolioStat({
 
   return (
     <div className="bg-card border border-border rounded-none p-5 group relative overflow-hidden transition-all hover:border-primary/40">
-      <div className={cn("absolute left-0 top-0 bottom-0 w-[1px]", accentColor)} />
+      <div className={cn("absolute left-0 top-0 bottom-0 w-px", accentColor)} />
 
       <div className="flex items-start justify-between relative z-10">
         <div>
@@ -231,7 +231,7 @@ export default function PortfolioPage() {
                 <p className="text-[7px] font-bold text-muted-foreground uppercase tracking-widest mb-1">Total Liquidity</p>
                 <p className="text-lg font-mono font-bold text-foreground">$4,285.40</p>
               </div>
-              <div className="w-[1px] h-8 bg-border" />
+              <div className="w-px h-8 bg-border" />
               <button className="bg-primary hover:bg-primary/90 text-primary-foreground px-6 py-2 text-[10px] font-bold uppercase tracking-widest flex items-center gap-2 transition-all active:scale-95">
                 Execute Fund <ArrowUpRight size={14} />
               </button>

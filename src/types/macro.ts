@@ -61,6 +61,15 @@ export interface MacroSignal {
 
   liquidity?: number;
 
-  /** Market Deadline / Resolution Date */
+  /** Market Deadline / Resolution Date (prefers closingDate) */
   endDate?: string;
+
+  /** When trading closes on Bayse (last moment to place a trade) */
+  closingDate?: string;
+
+  /** When the market officially resolves / the event happens */
+  resolutionDate?: string;
+
+  /** Flagged if the signal's probability shifted by >= 4% (Stability Latch break) */
+  hasChanged?: boolean;
 }

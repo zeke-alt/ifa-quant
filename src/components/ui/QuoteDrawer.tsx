@@ -13,7 +13,7 @@ import {
   RefreshCcw,
   AlertTriangle
 } from "lucide-react";
-
+import { cn } from "@/lib/utils";
 
 
 interface QuoteDrawerProps {
@@ -263,7 +263,7 @@ export default function QuoteDrawer({
   }
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+    <div className="fixed inset-0 z-100 flex items-center justify-center p-4">
       {/* Backdrop */}
       <div 
         className="absolute inset-0 bg-black/60 backdrop-blur-md transition-opacity duration-300" 
@@ -534,7 +534,7 @@ export default function QuoteDrawer({
             Cancel
           </button>
           <button
-            className={`qd-btn qd-btn--primary flex-[2] qd-btn--${side.toLowerCase()}`}
+            className={`qd-btn qd-btn--primary flex-2 qd-btn--${side.toLowerCase()}`}
             onClick={placeOrder}
             disabled={!quote || quoteLoading || ordering}
           >

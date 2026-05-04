@@ -10,6 +10,7 @@ import { useBookmarks } from '@/hooks/useBookmarks';
 import { useLayout } from '@/context/LayoutContext';
 import { cn } from '@/lib/utils';
 import Link from 'next/link';
+import CowrieIcon from '@/components/ui/CowrieIcon';
 
 export default function BookmarksPage() {
   const [signals, setSignals] = useState<MacroSignal[]>([]);
@@ -18,11 +19,24 @@ export default function BookmarksPage() {
   const { bookmarks } = useBookmarks();
   const { isSidebarCollapsed } = useLayout();
   const [searchQuery, setSearchQuery] = useState("");
+  const [currency, setCurrency] = useState<'USD' | 'NGN'>(() => {
+    if (typeof window !== 'undefined') {
+      return (localStorage.getItem('bayse_pref_currency') as 'USD' | 'NGN') || 'USD';
+    }
+    return 'USD';
+  });
 
-  const fetchSignals = useCallback(async () => {
+  // Save preferences when they change
+  useEffect(() => { 
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('bayse_pref_currency', currency); 
+    }
+  }, [currency]);
+
+  const fetchSignals = useCallback(async (force = false) => {
     setLoading(true);
     try {
-      const data = await analyzeMarkets();
+      const data = await analyzeMarkets(force);
       setSignals(data.signals || []);
     } catch (err) {
       console.error("BOOKMARKS_FETCH_ERROR:", err);
@@ -100,6 +114,25 @@ export default function BookmarksPage() {
                   <List size={12} /> Stream_List
                 </button>
               </div>
+
+              {/* USD / NGN Toggle */}
+              <div className="flex bg-accent/20 border border-border p-0.5">
+                {(['USD', 'NGN'] as const).map((c) => (
+                  <button key={c} onClick={() => setCurrency(c)} className={cn(
+                    "px-3 py-1.5 text-[10px] font-bold uppercase transition-all",
+                    currency === c ? 'bg-foreground text-background' : 'text-muted-foreground hover:text-foreground'
+                  )}>{c}</button>
+                ))}
+              </div>
+
+              {/* Refresh Button */}
+              <button 
+                onClick={() => fetchSignals()} 
+                className="p-2 border border-border bg-accent/20 hover:bg-accent/40 transition-colors"
+                title="Sync Analysis"
+              >
+                <RefreshCcw size={14} className={cn(loading && "animate-spin text-primary")} />
+              </button>
             </div>
           </div>
 
@@ -130,7 +163,7 @@ export default function BookmarksPage() {
             )}>
               {bookmarkedSignals.map((signal) => (
                 view === 'grid' ? (
-                  <MarketCard key={signal.marketId} signal={signal} />
+                  <MarketCard key={signal.marketId} signal={signal} currency={currency} />
                 ) : (
                   <SignalCard key={signal.marketId} signal={signal} />
                 )

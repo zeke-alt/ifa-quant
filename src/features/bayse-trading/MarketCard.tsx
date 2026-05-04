@@ -15,7 +15,9 @@ import {
   ShieldCheck,
   Activity,
   Loader2,
-  ArrowUpRight
+  ArrowUpRight,
+  CalendarClock,
+  Timer
 } from 'lucide-react';
 import { MacroSignal } from '@/types/macro';
 import DivergenceLine from '@/components/charts/DivergenceLine';
@@ -23,6 +25,27 @@ import QuoteDrawer from '@/components/ui/QuoteDrawer';
 import { useBookmarks } from '@/hooks/useBookmarks';
 import { cn } from '@/lib/utils';
 import CowrieIcon from '@/components/ui/CowrieIcon';
+
+// --- DEADLINE HELPER ---
+function formatDeadline(endDate?: string): { label: string; urgency: 'critical' | 'warning' | 'normal' | 'none' } {
+  if (!endDate) return { label: 'No deadline', urgency: 'none' };
+  const now = Date.now();
+  const end = new Date(endDate).getTime();
+  const diffMs = end - now;
+  if (diffMs <= 0) return { label: 'Closed', urgency: 'critical' };
+  const diffH = diffMs / (1000 * 60 * 60);
+  const diffD = diffMs / (1000 * 60 * 60 * 24);
+  if (diffH < 24) {
+    const h = Math.floor(diffH);
+    const m = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
+    return { label: `${h}h ${m}m left`, urgency: 'critical' };
+  }
+  if (diffD < 3) return { label: `${diffD.toFixed(1)}d left`, urgency: 'warning' };
+  return {
+    label: new Date(endDate).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }),
+    urgency: 'normal',
+  };
+}
 
 // --- SENTIMENT & TRADE LOGIC ---
 
@@ -75,6 +98,10 @@ export default function MarketCard({ signal, currency = 'USD' }: { signal: Macro
   const momentumValue = (Number(signal.probability) - 0.5) * ((signal.source_reliability + signal.historical_accuracy) / 2) * 100;
   const momentumLabel = momentumValue > 2 ? `+${momentumValue.toFixed(1)}%` : momentumValue < -2 ? `${momentumValue.toFixed(1)}%` : 'STABLE';
   const momentumColor = momentumValue > 2 ? 'text-emerald-500' : momentumValue < -2 ? 'text-rose-500' : 'text-muted-foreground';
+  const deadline = formatDeadline(signal.closingDate ?? signal.endDate);
+  const resolvesLabel = signal.resolutionDate
+    ? new Date(signal.resolutionDate).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
+    : null;
 
   return (
     <>
@@ -111,6 +138,12 @@ export default function MarketCard({ signal, currency = 'USD' }: { signal: Macro
                 <config.icon size={10} strokeWidth={3} />
                 <span className="text-[10px] font-bold tracking-widest">{config.label}</span>
               </div>
+              {signal.hasChanged && (
+                <div className="flex items-center gap-1.5 px-2 py-1 bg-amber-500/10 border border-amber-500/30 text-amber-500 animate-pulse shadow-[0_0_10px_rgba(245,158,11,0.2)]">
+                  <Activity size={10} strokeWidth={3} />
+                  <span className="text-[8px] font-black uppercase tracking-[0.2em]">Significant_Shift</span>
+                </div>
+              )}
               <button onClick={() => toggleBookmark(signal.marketId)} className="p-2 bg-accent hover:bg-accent/80 transition-colors border border-border">
                 <Bookmark size={12} fill={isBookmarked(signal.marketId) ? "currentColor" : "none"} className="text-muted-foreground" />
               </button>
@@ -121,6 +154,16 @@ export default function MarketCard({ signal, currency = 'USD' }: { signal: Macro
               <p className="text-[9px] text-muted-foreground mt-1 uppercase font-bold flex items-center gap-1 justify-end">
                 COST: <span className="text-foreground/80 flex items-center gap-0.5">{currency === 'NGN' ? '₦' : '$'}{currency === 'NGN' ? (signal.yesProbability * 100).toFixed(2) : signal.yesProbability.toFixed(2)}</span>
               </p>
+              <div className={cn(
+                           "flex items-center gap-1.5 px-2 py-1 border font-mono",
+                           deadline.urgency === 'critical' ? 'border-rose-500/30 bg-rose-500/10 text-rose-400' :
+                           deadline.urgency === 'warning'  ? 'border-orange-500/30 bg-orange-500/10 text-orange-400' :
+                           deadline.urgency === 'normal'   ? 'border-white/5 bg-white/2 text-slate-400' :
+                           'border-white/5 bg-transparent text-slate-600'
+                         )}>
+                           {deadline.urgency === 'critical' ? <Timer size={9} /> : <CalendarClock size={9} />}
+                           <span className="text-[8px] font-bold uppercase tracking-widest">{deadline.label}</span>
+                         </div>
             </div>
           </div>
 

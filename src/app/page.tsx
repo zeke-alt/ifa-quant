@@ -24,7 +24,7 @@ import {
   BrainCircuit,
   Search,
   X,
-  Filter, 
+  Filter,
   Bookmark,
   Database,
   Zap
@@ -32,6 +32,7 @@ import {
 import { useBookmarks } from '@/hooks/useBookmarks';
 import { useLayout } from '@/context/LayoutContext';
 import { cn } from '@/lib/utils';
+import CowrieIcon from '@/components/ui/CowrieIcon';
 
 // --- CONFIG ---
 /**
@@ -94,7 +95,7 @@ function Leaderboard({ signals, currency = 'USD' }: { signals: MacroSignal[], cu
     .sort((a, b) => b.divergence - a.divergence);
 
   return (
-    <div className="space-y-2">
+    <div className="space-y-2 rounded-none">
       {/* Header */}
       <div className="grid grid-cols-12 gap-2 px-3 py-2 text-[9px] font-mono text-slate-600 uppercase tracking-widest border-b border-slate-800">
         <div className="col-span-1">#</div>
@@ -124,7 +125,8 @@ function Leaderboard({ signals, currency = 'USD' }: { signals: MacroSignal[], cu
             </div>
 
             {/* Asset */}
-            <div className="col-span-5 min-w-0">
+            <div className="col-span-5 min-w-0"
+              onClick={() => window.open(`https://app.bayse.markets/market/${s.eventId}`, '_blank')}>
               <h4 className="text-[11px] font-black text-foreground truncate uppercase tracking-tight">
                 {s.headline.length > 40 ? s.headline.slice(0, 40) + "…" : s.headline}
               </h4>
@@ -210,7 +212,7 @@ function IntelligenceTab({ signalsData }: { signalsData: SignalsData | null }) {
             <span className="text-muted-foreground/60">GLOBAL_CONFIDENCE</span>
             <span className="text-foreground">{globalConfidence}%</span>
           </div>
-          
+
           {/* Sentiment breakdown */}
           <div className="pt-6 border-t border-border/50 space-y-4">
             {['BULLISH', 'BEARISH', 'RISK_ALERT', 'NEUTRAL'].map((s) => {
@@ -232,13 +234,13 @@ function IntelligenceTab({ signalsData }: { signalsData: SignalsData | null }) {
               );
             })}
           </div>
-          
+
           <div className="pt-8 border-t border-border/50">
             <OjaScore signals={signalsData?.signals ?? []} />
           </div>
         </div>
       </div>
-      
+
 
       {/* System Log */}
       <div className="space-y-8">
@@ -263,7 +265,7 @@ const SENTIMENT_TABS = [
 ];
 
 const NAV_TABS = [
-  { id: 'scanner', label: 'Nodes', icon: <LayoutGrid size={12} />, color: 'primary' },
+  { id: 'scanner', label: 'Signals', icon: <LayoutGrid size={12} />, color: 'primary' },
   { id: 'leaderboard', label: 'Leaderboard', icon: <Trophy size={12} />, color: 'orange-500' },
   { id: 'intelligence', label: 'Intelligence', icon: <BrainCircuit size={12} />, color: 'purple-500' }
 ];
@@ -298,7 +300,7 @@ export default function Dashboard() {
   useEffect(() => { localStorage.setItem('bayse_pref_sentiment', sentimentFilter); }, [sentimentFilter]);
   useEffect(() => { localStorage.setItem('bayse_pref_category', categoryFilter); }, [categoryFilter]);
   const [lastUpdated, setLastUpdated] = useState("");
-  
+
   const { isSidebarCollapsed } = useLayout();
   const { toggleBookmark, isBookmarked } = useBookmarks();
 
@@ -413,7 +415,7 @@ export default function Dashboard() {
         isSidebarCollapsed ? "lg:ml-20" : "lg:ml-64"
       )}>
         <div className="flex-1 p-4 lg:p-6 max-w-[1800px] mx-auto w-full">
-          
+
           {/* HEADER SECTION */}
           <div className="flex flex-col md:flex-row md:items-center justify-between mb-6 border-b border-border pb-4 gap-4">
             <div>
@@ -430,7 +432,7 @@ export default function Dashboard() {
               <form onSubmit={handleSearch} className="relative group flex-1 md:w-64 flex items-center gap-2">
                 <div className="relative flex-1">
                   <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground/60 group-focus-within:text-primary transition-colors" />
-                  <input 
+                  <input
                     type="text"
                     placeholder="Search_Markets..."
                     value={searchQuery}
@@ -438,15 +440,15 @@ export default function Dashboard() {
                     className="w-full bg-card border border-border py-2 pl-10 pr-4 text-[11px] font-mono focus:outline-none focus:border-primary/50 transition-all placeholder:text-muted-foreground/40"
                   />
                   {searchQuery && (
-                    <X 
-                      size={12} 
-                      className="absolute right-3 top-1/2 -translate-y-1/2 cursor-pointer text-muted-foreground hover:text-primary" 
-                      onClick={clearSearch} 
+                    <X
+                      size={12}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 cursor-pointer text-muted-foreground hover:text-primary"
+                      onClick={clearSearch}
                     />
                   )}
                 </div>
-                <button 
-                  type="submit" 
+                <button
+                  type="submit"
                   disabled={isSearching}
                   className="bg-primary/10 hover:bg-primary/20 p-2 border border-primary/20 text-primary disabled:opacity-50 transition-colors"
                 >
@@ -454,7 +456,7 @@ export default function Dashboard() {
                 </button>
               </form>
 
-              <div className="flex bg-card border border-borde p-0.5">
+              <div className="flex bg-card border border-border p-0.5">
                 {(['USD', 'NGN'] as const).map((c) => (
                   <button key={c} onClick={() => setCurrency(c)} className={cn(
                     "px-3 py-1 text-[10px] font-bold uppercase transition-all",
@@ -469,21 +471,21 @@ export default function Dashboard() {
           </div>
 
           <div className="grid grid-cols-12 gap-6">
-            
+
             {/* LEFT COLUMN: PRIMARY WORKSPACE */}
             <div className="col-span-12 lg:col-span-8 space-y-4">
-              
+
               {/* TABS & FILTERS */}
               <div className="bg-card border border-border rounded-sm overflow-hidden">
                 <div className="flex items-center gap-1 p-1 border-b border-border bg-accent/20">
                   {NAV_TABS.map((tab) => (
-                    <button 
-                      key={tab.id} 
-                      onClick={() => setActiveTab(tab.id as any)} 
+                    <button
+                      key={tab.id}
+                      onClick={() => setActiveTab(tab.id as any)}
                       className={cn(
                         "flex-1 lg:flex-none flex items-center justify-center gap-2 px-6 py-2.5 text-[10px] font-bold uppercase transition-all border-b-2",
-                        activeTab === tab.id 
-                          ? `bg-${tab.color}/10 border-${tab.color} text-${tab.color}` 
+                        activeTab === tab.id
+                          ? `bg-${tab.color}/10 border-${tab.color} text-${tab.color}`
                           : "border-transparent text-muted-foreground hover:text-foreground hover:bg-accent/50",
                         tab.id === 'intelligence' && "lg:hidden"
                       )}
@@ -498,15 +500,15 @@ export default function Dashboard() {
                     <div className="flex flex-wrap items-center gap-2">
                       <Filter size={10} className="text-muted-foreground mr-2" />
                       {SENTIMENT_TABS.map((tab) => (
-                         <button key={tab.id} onClick={() => setSentimentFilter(tab.id)} className={cn(
-                           "flex items-center gap-2 text-[9px] font-bold px-3 py-1.5 transition-all uppercase border rounded-none",
-                           sentimentFilter === tab.id ? `${tab.color} ${tab.text} bg-accent border-current/40` : "border-border text-muted-foreground hover:text-foreground"
-                         )}>
-                           <tab.icon size={10} /> {tab.id}
-                         </button>
+                        <button key={tab.id} onClick={() => setSentimentFilter(tab.id)} className={cn(
+                          "flex items-center gap-2 text-[9px] font-bold px-3 py-1.5 transition-all uppercase border rounded-none",
+                          sentimentFilter === tab.id ? `${tab.color} ${tab.text} bg-accent border-current/40` : "border-border text-muted-foreground hover:text-foreground"
+                        )}>
+                          <tab.icon size={10} /> {tab.id}
+                        </button>
                       ))}
                     </div>
-                    
+
                     <div className="flex flex-wrap gap-2 pt-2 border-t border-border">
                       {categories.map((cat) => (
                         <button key={cat} onClick={() => setCategoryFilter(cat)} className={cn(
@@ -551,16 +553,16 @@ export default function Dashboard() {
                                   <span className="text-[9px] font-black text-muted-foreground uppercase tracking-widest opacity-40">{event.category}</span>
                                 </div>
                                 <h3 className="text-foreground font-black text-lg mb-6 line-clamp-2 tracking-tight">{event.title}</h3>
-                                
+
                                 <div className="flex-1 space-y-3 mb-8">
                                   {event.markets.map((m: any) => (
                                     <div key={m.id} className="flex justify-between items-center bg-secondary/50 p-4 rounded-2xl border border-border/50 group/row hover:bg-secondary transition-colors">
                                       <span className="text-[11px] text-foreground/80 font-black uppercase tracking-tight">{m.title}</span>
                                       <div className="flex items-center gap-4">
                                         <span className="text-[11px] font-black text-primary font-mono">{(m.outcome1Price * 100).toFixed(0)}%</span>
-                                        <a 
-                                          href={`https://app.bayse.markets/market/${event.id}`} 
-                                          target="_blank" 
+                                        <a
+                                          href={`https://app.bayse.markets/market/${event.id}`}
+                                          target="_blank"
                                           rel="noopener noreferrer"
                                           className="p-1.5 bg-primary/10 hover:bg-primary/20 text-primary rounded-lg transition-all"
                                         >
@@ -571,7 +573,7 @@ export default function Dashboard() {
                                   ))}
                                 </div>
 
-                                <button 
+                                <button
                                   onClick={() => requestAnalysis(event.id)}
                                   disabled={analyzingEventId === event.id}
                                   className="w-full flex items-center justify-center gap-2 px-6 py-3 bg-primary hover:bg-primary/90 text-[10px] font-black text-primary-foreground rounded-2xl transition-all shadow-lg shadow-primary/20 disabled:opacity-50 uppercase tracking-widest"
@@ -597,7 +599,7 @@ export default function Dashboard() {
                             <span className="text-[10px] font-bold text-primary uppercase tracking-widest">Top_Intelligence_Signals</span>
                             <span className="ml-auto text-[8px] font-mono text-muted-foreground/40 uppercase">Vetted_Alpha_Nodes</span>
                           </div>
-                          
+
                           {topSignals.length > 0 ? (
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                               {topSignals.map((s: any, i: number) => (
@@ -606,7 +608,7 @@ export default function Dashboard() {
                             </div>
                           ) : !loading && (
                             <div className="p-12 text-center border border-dashed border-border opacity-50">
-                               <p className="text-[10px] font-mono uppercase tracking-[0.3em]">No_Analyzed_Signals_Found</p>
+                              <p className="text-[10px] font-mono uppercase tracking-[0.3em]">No_Analyzed_Signals_Found</p>
                             </div>
                           )}
                         </div>
@@ -646,21 +648,21 @@ export default function Dashboard() {
                   <span className="text-[8px] font-mono text-muted-foreground">LIVE_FEED</span>
                 </div>
                 <ConfidenceGauge value={Math.round((signalsData?.global_confidence ?? 0) * 100)} />
-                
+
                 {/* Real-time Metrics */}
                 <div className="grid grid-cols-2 gap-4 mt-6 py-4 border-y border-border bg-accent/20">
-                   <div className="text-center">
-                      <p className="text-[8px] font-bold text-muted-foreground uppercase tracking-widest mb-1">Active_Signals</p>
-                      <p className="text-lg font-mono font-bold text-primary">{signalsData?.active_signals || 0}</p>
-                   </div>
-                   <div className="text-center border-l border-border">
-                      <p className="text-[8px] font-bold text-muted-foreground uppercase tracking-widest mb-1">Data_Points</p>
-                      <p className="text-lg font-mono font-bold text-blue-500">{signalsData?.data_points?.toLocaleString() || 0}</p>
-                   </div>
+                  <div className="text-center">
+                    <p className="text-[8px] font-bold text-muted-foreground uppercase tracking-widest mb-1">Active_Signals</p>
+                    <p className="text-lg font-mono font-bold text-primary">{signalsData?.active_signals || 0}</p>
+                  </div>
+                  <div className="text-center border-l border-border">
+                    <p className="text-[8px] font-bold text-muted-foreground uppercase tracking-widest mb-1">Data_Points</p>
+                    <p className="text-lg font-mono font-bold text-blue-500">{signalsData?.data_points?.toLocaleString() || 0}</p>
+                  </div>
                 </div>
 
                 <div className="mt-6 pt-6 border-t border-border">
-                   <OjaScore signals={signalsData?.signals ?? []} />
+                  <OjaScore signals={signalsData?.signals ?? []} />
                 </div>
               </div>
 
@@ -669,51 +671,51 @@ export default function Dashboard() {
 
               {/* RECENT LOGIC SECTION */}
               <div className="flex flex-col gap-4">
-                 <div className="flex items-center justify-between mb-2">
-                    <h2 className="text-[10px] font-bold text-muted-foreground uppercase tracking-[0.3em]">RECENT_LOGIC</h2>
-                    <span className="text-[8px] font-mono text-muted-foreground/60">NODE_HISTORY</span>
-                 </div>
-                 
-                 <div className="space-y-3">
-                    {signalsData?.signals?.slice(0, 3).map((s: any, i: number) => (
-                      <div key={i} className="bg-card border border-border p-4 relative group hover:border-primary/30 transition-all">
-                        <div className="flex justify-between items-start mb-3">
-                           <span className={cn(
-                             "text-[8px] font-bold uppercase tracking-widest",
-                             s.sentiment === 'BULLISH' ? 'text-emerald-500' : 'text-orange-500'
-                           )}>
-                             {s.sentiment}_SIGNAL
-                           </span>
-                           <div className="flex items-center gap-3">
-                              <button onClick={() => toggleBookmark(s.marketId)}>
-                                <Bookmark size={10} fill={isBookmarked(s.marketId) ? "currentColor" : "none"} className={cn(isBookmarked(s.marketId) ? "text-primary" : "text-muted-foreground")} />
-                              </button>
-                              <span className="text-[8px] font-mono text-muted-foreground uppercase font-bold">CONF: {(s.source_reliability * 100).toFixed(0)}%</span>
-                           </div>
-                        </div>
+                <div className="flex items-center justify-between mb-2">
+                  <h2 className="text-[10px] font-bold text-muted-foreground uppercase tracking-[0.3em]">RECENT_LOGIC</h2>
+                  <span className="text-[8px] font-mono text-muted-foreground/60">NODE_HISTORY</span>
+                </div>
 
-                        <p className="text-[8px] font-bold text-muted-foreground uppercase mb-1 leading-tight line-clamp-1">{s.eventTitle}</p>
-                        <h4 className="text-[11px] font-bold text-foreground mb-1 leading-tight group-hover:text-primary transition-colors line-clamp-2">{s.headline}</h4>
-                        <p className="text-[9px] text-muted-foreground italic font-mono mb-3 line-clamp-1">{s.marketTitle}</p>
-                        
-                        <p className="text-[9px] text-muted-foreground/80 leading-relaxed line-clamp-2 italic mb-4">
-                          {s.recommendation || s.logic}
-                        </p>
-
-                        <div className="pt-3 border-t border-border flex items-center justify-between">
-                           <span className="text-[8px] font-bold text-muted-foreground uppercase tracking-widest flex items-center gap-1">
-                             <Activity size={8} /> INSIGHTS
-                           </span>
-                           <div className="w-16 h-1 bg-accent">
-                              <div className={cn(
-                                "h-full",
-                                s.sentiment === 'BULLISH' ? 'bg-emerald-500' : 'bg-orange-500'
-                              )} style={{ width: `${(s.probability * 100)}%` }} />
-                           </div>
+                <div className="space-y-3">
+                  {signalsData?.signals?.slice(0, 3).map((s: any, i: number) => (
+                    <div key={i} className="bg-card border border-border p-4 relative group hover:border-primary/30 transition-all">
+                      <div className="flex justify-between items-start mb-3">
+                        <span className={cn(
+                          "text-[8px] font-bold uppercase tracking-widest",
+                          s.sentiment === 'BULLISH' ? 'text-emerald-500' : 'text-orange-500'
+                        )}>
+                          {s.sentiment}_SIGNAL
+                        </span>
+                        <div className="flex items-center gap-3">
+                          <button onClick={() => toggleBookmark(s.marketId)}>
+                            <Bookmark size={10} fill={isBookmarked(s.marketId) ? "currentColor" : "none"} className={cn(isBookmarked(s.marketId) ? "text-primary" : "text-muted-foreground")} />
+                          </button>
+                          <span className="text-[8px] font-mono text-muted-foreground uppercase font-bold">CONF: {(s.source_reliability * 100).toFixed(0)}%</span>
                         </div>
                       </div>
-                    ))}
-                 </div>
+
+                      <p className="text-[8px] font-bold text-muted-foreground uppercase mb-1 leading-tight line-clamp-1">{s.eventTitle}</p>
+                      <h4 className="text-[11px] font-bold text-foreground mb-1 leading-tight group-hover:text-primary transition-colors line-clamp-2">{s.headline}</h4>
+                      <p className="text-[9px] text-muted-foreground italic font-mono mb-3 line-clamp-1">{s.marketTitle}</p>
+
+                      <p className="text-[9px] text-muted-foreground/80 leading-relaxed line-clamp-2 italic mb-4">
+                        {s.recommendation || s.logic}
+                      </p>
+
+                      <div className="pt-3 border-t border-border flex items-center justify-between">
+                        <span className="text-[8px] font-bold text-muted-foreground uppercase tracking-widest flex items-center gap-1">
+                          <Activity size={8} /> INSIGHTS
+                        </span>
+                        <div className="w-16 h-1 bg-accent">
+                          <div className={cn(
+                            "h-full",
+                            s.sentiment === 'BULLISH' ? 'bg-emerald-500' : 'bg-orange-500'
+                          )} style={{ width: `${(s.probability * 100)}%` }} />
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
               </div>
             </div>
           </div>

@@ -7,7 +7,7 @@ function getAI() {
     _ai = new GoogleGenAI({
       vertexai: true,
       project: process.env.GOOGLE_CLOUD_PROJECT!,
-      location: "global",
+      location: process.env.GOOGLE_CLOUD_LOCATION!,
     });
   }
   return _ai;

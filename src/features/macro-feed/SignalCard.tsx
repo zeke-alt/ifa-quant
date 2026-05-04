@@ -6,18 +6,47 @@ import {
   TrendingDown, 
   AlertTriangle, 
   Minus, 
-  ChevronRight, 
   Brain, 
   Clock,
-  Target,
   Bookmark,
   ChevronDown,
   ChevronUp,
-  ShieldCheck
+  Timer,
+  CalendarClock,
+  Activity
 } from 'lucide-react';
 import { MacroSignal } from '@/types/macro';
 import { useBookmarks } from '@/hooks/useBookmarks';
 import { cn } from '@/lib/utils';
+
+/**
+ * Formats the time remaining until a market deadline.
+ * Returns { label, urgency } where urgency drives the color.
+ */
+function formatDeadline(endDate?: string): { label: string; urgency: 'critical' | 'warning' | 'normal' | 'none' } {
+  if (!endDate) return { label: 'No deadline', urgency: 'none' };
+  const now = Date.now();
+  const end = new Date(endDate).getTime();
+  const diffMs = end - now;
+
+  if (diffMs <= 0) return { label: 'Closed', urgency: 'critical' };
+
+  const diffH = diffMs / (1000 * 60 * 60);
+  const diffD = diffMs / (1000 * 60 * 60 * 24);
+
+  if (diffH < 24) {
+    const h = Math.floor(diffH);
+    const m = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
+    return { label: `${h}h ${m}m left`, urgency: 'critical' };
+  }
+  if (diffD < 3) {
+    return { label: `${diffD.toFixed(1)}d left`, urgency: 'warning' };
+  }
+  return {
+    label: new Date(endDate).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }),
+    urgency: 'normal',
+  };
+}
 
 const SENTIMENT_CONFIG = {
   BULLISH: { icon: TrendingUp, color: 'text-emerald-500', bg: 'bg-emerald-500/10', label: 'BULLISH' },
@@ -37,14 +66,18 @@ export default function SignalCard({ signal }: { signal: MacroSignal }) {
   const probability = Number(signal.probability);
   const probPercent = (probability * 100).toFixed(0);
   const bookmarked = isBookmarked(signal.marketId);
+  const deadline = formatDeadline(signal.closingDate ?? signal.endDate);
+  const resolvesLabel = signal.resolutionDate
+    ? new Date(signal.resolutionDate).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
+    : null;
 
   return (
     <div className={cn(
       "bg-[#0c0d0e] border rounded-none group transition-all duration-300 overflow-hidden relative",
-      sentiment === 'BULLISH' ? 'border-white/10 hover:border-emerald-500/50 hover:bg-emerald-500/[0.03] hover:shadow-[0_0_30px_rgba(16,185,129,0.15)]' :
-      sentiment === 'BEARISH' ? 'border-white/10 hover:border-rose-500/50 hover:bg-rose-500/[0.03] hover:shadow-[0_0_30px_rgba(244,63,94,0.15)]' :
-      sentiment === 'RISK_ALERT' ? 'border-white/10 hover:border-orange-500/50 hover:bg-orange-500/[0.03] hover:shadow-[0_0_30px_rgba(249,115,22,0.15)]' :
-      'border-white/10 hover:border-white/20 hover:bg-white/[0.02]'
+      sentiment === 'BULLISH' ? 'border-white/10 hover:border-emerald-500/50 hover:bg-emerald-500/30 hover:shadow-[0_0_30px_rgba(16,185,129,0.15)]' :
+      sentiment === 'BEARISH' ? 'border-white/10 hover:border-rose-500/50 hover:bg-rose-500/30 hover:shadow-[0_0_30px_rgba(244,63,94,0.15)]' :
+      sentiment === 'RISK_ALERT' ? 'border-white/10 hover:border-orange-500/50 hover:bg-orange-500/30 hover:shadow-[0_0_30px_rgba(249,115,22,0.15)]' :
+      'border-white/10 hover:border-white/20 hover:bg-white/2'
     )}>
       <div className={cn(
         "absolute left-0 top-0 bottom-0 w-1 transition-all duration-300 group-hover:w-1.5",
@@ -56,10 +89,10 @@ export default function SignalCard({ signal }: { signal: MacroSignal }) {
       {/* Dynamic Color Highlight on Hover */}
       <div className={cn(
         "absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-500 pointer-events-none",
-        sentiment === 'BULLISH' ? 'bg-gradient-to-br from-emerald-500/10 via-transparent to-transparent' :
-        sentiment === 'BEARISH' ? 'bg-gradient-to-br from-rose-500/10 via-transparent to-transparent' :
-        sentiment === 'RISK_ALERT' ? 'bg-gradient-to-br from-orange-500/10 via-transparent to-transparent' :
-        'bg-gradient-to-br from-blue-500/10 via-transparent to-transparent'
+        sentiment === 'BULLISH' ? 'bg-linear-to-br from-emerald-500/10 via-transparent to-transparent' :
+        sentiment === 'BEARISH' ? 'bg-linear-to-br from-rose-500/10 via-transparent to-transparent' :
+        sentiment === 'RISK_ALERT' ? 'bg-linear-to-br from-orange-500/10 via-transparent to-transparent' :
+        'bg-linear-to-br from-blue-500/10 via-transparent to-transparent'
       )} />
 
       <div className="p-5">
@@ -87,6 +120,12 @@ export default function SignalCard({ signal }: { signal: MacroSignal }) {
               <Icon size={10} strokeWidth={3} />
               {config.label}
             </div>
+            {signal.hasChanged && (
+              <div className="flex items-center gap-1.5 px-2 py-1 bg-amber-500/10 border border-amber-500/30 text-amber-500 animate-pulse">
+                <Activity size={10} strokeWidth={3} />
+                <span className="text-[7px] font-black uppercase tracking-[0.2em]">Shift</span>
+              </div>
+            )}
           </div>
         </div>
 
@@ -109,9 +148,15 @@ export default function SignalCard({ signal }: { signal: MacroSignal }) {
         </div>
 
         <div className="flex items-center justify-between pt-4 border-t border-white/5">
-           <div className="flex items-center gap-2">
-              <Clock size={10} className="text-slate-600" />
-              <span className="text-[8px] font-bold text-slate-600 uppercase tracking-widest">Synced: Live</span>
+           <div className={cn(
+             "flex items-center gap-1.5 px-2 py-1 border font-mono",
+             deadline.urgency === 'critical' ? 'border-rose-500/30 bg-rose-500/10 text-rose-400' :
+             deadline.urgency === 'warning'  ? 'border-orange-500/30 bg-orange-500/10 text-orange-400' :
+             deadline.urgency === 'normal'   ? 'border-white/5 bg-white/2 text-slate-400' :
+             'border-white/5 bg-transparent text-slate-600'
+           )}>
+             {deadline.urgency === 'critical' ? <Timer size={9} /> : <CalendarClock size={9} />}
+             <span className="text-[8px] font-bold uppercase tracking-widest">{deadline.label}</span>
            </div>
             <button
               onClick={() => setExpanded(!expanded)}
@@ -125,7 +170,7 @@ export default function SignalCard({ signal }: { signal: MacroSignal }) {
 
       {expanded && (
         <div className="bg-black/40 border-t border-white/5 p-5 space-y-4 animate-in fade-in slide-in-from-top-2 duration-300">
-           <div className="bg-white/[0.02] border border-white/5 p-3 relative group/reason">
+           <div className="bg-white/2 border border-white/5 p-3 relative group/reason">
               <div className="absolute left-0 top-0 bottom-0 w-0.5 bg-primary/40" />
               <div className="text-[8px] font-bold text-slate-600 uppercase tracking-widest mb-2 flex items-center gap-1">
                 RECOMMENDATION
@@ -143,6 +188,18 @@ export default function SignalCard({ signal }: { signal: MacroSignal }) {
               <div className="p-2 bg-white/2 border border-white/5 font-mono">
                  <div className="text-[7px] font-bold text-slate-600 uppercase mb-1">RISK_STATUS</div>
                  <div className={cn("text-[10px] font-bold", sentiment === 'RISK_ALERT' ? 'text-orange-500' : 'text-emerald-500')}>NOMINAL</div>
+              </div>
+              <div className="p-2 bg-white/2 border border-white/5 font-mono">
+                 <div className="text-[7px] font-bold text-slate-600 uppercase mb-1">TRADES_UNTIL</div>
+                 <div className={cn(
+                   "text-[10px] font-bold",
+                   deadline.urgency === 'critical' ? 'text-rose-400' :
+                   deadline.urgency === 'warning' ? 'text-orange-400' : 'text-slate-300'
+                 )}>{deadline.label}</div>
+              </div>
+              <div className="p-2 bg-white/2 border border-white/5 font-mono">
+                 <div className="text-[7px] font-bold text-slate-600 uppercase mb-1">RESOLVES</div>
+                 <div className="text-[10px] font-bold text-slate-400">{resolvesLabel ?? '—'}</div>
               </div>
            </div>
 

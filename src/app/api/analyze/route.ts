@@ -392,6 +392,8 @@ export async function GET(req: Request) {
         liquidity: e.liquidity,
         category: e.category,
         feeRate: m.feeRate ?? e.feeRate ?? 0.1,
+        closingDate: e.closingDate || null,
+        resolutionDate: e.resolutionDate || null,
         endDate: e.closingDate || e.resolutionDate || null,
       }))
     );
@@ -495,7 +497,9 @@ Return a JSON object:
       "yesOutcomeId": <copy exact>,
       "noOutcomeId": <copy exact>,
       "liquidity": <copy the liquidity field exactly from the market data>,
-      "endDate": <copy exact endDate if present, else null>
+      "endDate": <copy exact closingDate if present, else resolutionDate, else null>,
+      "closingDate": <copy exact closingDate if present, else null>,
+      "resolutionDate": <copy exact resolutionDate if present, else null>
     }
   ]
 }
@@ -563,8 +567,12 @@ Find the alpha. Focus on Nigerian/African macro context. Let the live data speak
             noOutcomeId: prev.noOutcomeId,
             endDate: prev.endDate,
             market_question: s.marketTitle,
+            hasChanged: false,
           };
         }
+        // Significant change detected
+        console.log(`LATCH_BROKEN: Significant shift in ${s.marketId} (delta: ${(delta * 100).toFixed(1)}%)`);
+        s.hasChanged = true;
       }
 
       signalHistory[s.marketId] = s;

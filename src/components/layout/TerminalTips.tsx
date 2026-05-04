@@ -24,7 +24,7 @@ export default function TerminalTips() {
 
   return (
     <div className="bg-card border border-border p-5 rounded-none relative overflow-hidden group">
-      <div className="absolute left-0 top-0 bottom-0 w-[1px] bg-amber-500/40" />
+      <div className="absolute left-0 top-0 bottom-0 w-px bg-amber-500/40" />
       <div className="flex items-center justify-between mb-6">
         <h2 className="text-[10px] font-bold text-amber-500 uppercase tracking-[0.3em] flex items-center gap-2">
           <HelpCircle size={14} /> Quick_Tips
