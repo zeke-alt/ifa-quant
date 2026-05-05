@@ -19,31 +19,24 @@ import { cn } from "@/lib/utils";
 interface QuoteDrawerProps {
   eventId: string;
   marketId: string;
-  /** The outcome string returned by Bayse, e.g. "YES" | "NO" */
   defaultOutcome?: string;
-  /** "AMM" | "CLOB" — controls whether price field renders */
   engine: "AMM" | "CLOB";
-  /** Called when user confirms the order */
   onOrderConfirmed?: (orderId: string) => void;
-  /** Called when drawer closes without action */
   onClose?: () => void;
-  /** External currency setting from the dashboard */
   currencyProp?: "USD" | "NGN";
-  /** The AI's assessed probability for ROI projections */
   aiProbability?: number;
-  /** Real Bayse IDs for outcomes */
   yesOutcomeId?: string;
   noOutcomeId?: string;
 }
 
 interface QuoteResponse {
-  price: number;             // effective per-share price (0-1)
+  price: number;
   currentMarketPrice: number;
-  quantity: number;          // shares you receive
-  costOfShares: number;      // gross cost before fee
-  fee: number;               // explicit fee
-  amount: number;            // total spent (including fee)
-  completeFill: boolean;     // for CLOB
+  quantity: number;
+  costOfShares: number;
+  fee: number;
+  amount: number;
+  completeFill: boolean;
   priceImpactAbsolute: number;
   profitPercentage: number;
   currencyBaseMultiplier: number;
@@ -55,22 +48,11 @@ interface OrderResponse {
   status: "pending" | "open" | "partial_filled" | "filled" | "cancelled" | "rejected";
 }
 
-
-
-// Bayse fee formula: fee = feeRate × C × P × max(1 − P, 0.5)
-// We surface this for educational context in the UI (not used for calculation —
-// we always display the server-returned fee from the quote response).
 const DEBOUNCE_MS = 400;
 
-
-
-/** Format a number as USD with 2 decimal places */
 const usd = (n: number) => `$${n.toFixed(2)}`;
-
-/** Format a probability price as a percentage */
 const pct = (p: number) => `${(p * 100).toFixed(1)}%`;
 
-/** Round-trip: debounce quote fetches so we don't hammer the API on every keystroke */
 function useDebounce<T>(value: T, delay: number): T {
   const [debounced, setDebounced] = useState(value);
   useEffect(() => {
@@ -79,8 +61,6 @@ function useDebounce<T>(value: T, delay: number): T {
   }, [value, delay]);
   return debounced;
 }
-
-
 
 export default function QuoteDrawer({
   eventId,
@@ -94,34 +74,35 @@ export default function QuoteDrawer({
   yesOutcomeId,
   noOutcomeId,
 }: QuoteDrawerProps) {
-  // ── Form state
+  // Track label ("YES" | "NO") for display — resolve to UUID at send time
   const [side, setSide] = useState<"BUY" | "SELL">("BUY");
-  const [outcome, setOutcome] = useState(yesOutcomeId || defaultOutcome);
-  const [amount, setAmount] = useState<string>("100");        // raw input string
-  const [limitPrice, setLimitPrice] = useState<string>("0.65"); // CLOB only
+  const [outcomeLabel, setOutcomeLabel] = useState<"YES" | "NO">("YES");
+  const [amount, setAmount] = useState<string>("100");
+  const [limitPrice, setLimitPrice] = useState<string>("0.65");
   const [currency, setCurrency] = useState<"USD" | "NGN">(currencyProp);
-  const [tif, setTif] = useState<"GTC" | "FAK" | "FOK">("GTC"); // CLOB time-in-force
+  const [tif, setTif] = useState<"GTC" | "FAK" | "FOK">("GTC");
 
-  // ── Quote state
   const [quote, setQuote] = useState<QuoteResponse | null>(null);
   const [quoteLoading, setQuoteLoading] = useState(false);
   const [quoteError, setQuoteError] = useState<string | null>(null);
 
-  // ── Order state
   const [ordering, setOrdering] = useState(false);
   const [orderResult, setOrderResult] = useState<OrderResponse | null>(null);
   const [orderError, setOrderError] = useState<string | null>(null);
 
-  // Keep internal currency in sync with global setting if it changes
   useEffect(() => {
     setCurrency(currencyProp);
   }, [currencyProp]);
 
-  // Debounce the amount input so we only fetch quotes after user stops typing
   const debouncedAmount = useDebounce(amount, DEBOUNCE_MS);
   const debouncedLimitPrice = useDebounce(limitPrice, DEBOUNCE_MS);
 
-  // ── Auto-fetch quote whenever inputs settle
+  // Resolve label → UUID for Bayse API calls
+  const resolveOutcomeId = (label: "YES" | "NO") => {
+    if (label === "YES") return yesOutcomeId ?? "YES";
+    return noOutcomeId ?? "NO";
+  };
+
   useEffect(() => {
     const parsedAmount = parseFloat(debouncedAmount);
     if (!parsedAmount || parsedAmount <= 0) {
@@ -136,17 +117,22 @@ export default function QuoteDrawer({
       setQuoteError(null);
 
       try {
-        // POST to our internal Next.js API route, which signs the request
-        // with HMAC-SHA256 and forwards to Bayse.
-        // Route: /api/bayse/events/[eventId]/markets/[marketId]/quote
+        const resolvedOutcome = resolveOutcomeId(outcomeLabel);
+        
+        // Safety check: Bayse expects UUIDs. If we fall back to literal "YES"/"NO", it's an error.
+        if (resolvedOutcome === "YES" || resolvedOutcome === "NO") {
+          setQuoteError(`Invalid Configuration: Missing UUID for ${outcomeLabel}. Refresh data.`);
+          setQuoteLoading(false);
+          return;
+        }
+
         const body: Record<string, unknown> = {
           side,
-          outcome,
+          outcome: resolvedOutcome, // UUID, not label
           amount: parsedAmount,
           currency,
         };
 
-        // CLOB markets need a limit price
         if (engine === "CLOB") {
           body.price = parseFloat(debouncedLimitPrice);
         }
@@ -159,11 +145,19 @@ export default function QuoteDrawer({
 
         setQuote(data);
       } catch (err: unknown) {
-        if (axios.isCancel(err)) return; // stale request, ignore
-        const msg =
-          axios.isAxiosError(err)
+        if (axios.isCancel(err)) return;
+        
+        let msg = axios.isAxiosError(err)
             ? err.response?.data?.message ?? err.message
             : "Failed to fetch quote";
+
+        // Mask technical errors for a more premium experience
+        if (msg.toLowerCase().includes("invalid outcome id") || msg.toLowerCase().includes("not found")) {
+          msg = "Market Synchronization in progress... Please try again in 5s.";
+        } else if (msg.toLowerCase().includes("liquidity")) {
+          msg = "Insufficient Liquidity for this order size.";
+        }
+
         setQuoteError(msg);
         setQuote(null);
       } finally {
@@ -172,19 +166,25 @@ export default function QuoteDrawer({
     };
 
     fetchQuote();
-    return () => controller.abort(); // cancel in-flight request on next render
-  }, [debouncedAmount, debouncedLimitPrice, side, outcome, currency, engine, eventId, marketId]);
+    return () => controller.abort();
+  }, [debouncedAmount, debouncedLimitPrice, side, outcomeLabel, currency, engine, eventId, marketId]);
 
-  // ── Place order — only called after user reviews quote
   const placeOrder = async () => {
     if (!quote) return;
     setOrdering(true);
     setOrderError(null);
 
     try {
+      const resolvedOutcome = resolveOutcomeId(outcomeLabel);
+      if (resolvedOutcome === "YES" || resolvedOutcome === "NO") {
+        setOrderError(`Execution Error: Missing UUID for ${outcomeLabel}.`);
+        setOrdering(false);
+        return;
+      }
+
       const body: Record<string, unknown> = {
         side,
-        outcome,
+        outcome: resolvedOutcome, // UUID, not label
         amount: parseFloat(amount),
         currency,
       };
@@ -202,37 +202,29 @@ export default function QuoteDrawer({
       setOrderResult(data);
       onOrderConfirmed?.(data.id);
     } catch (err: unknown) {
-      const msg =
-        axios.isAxiosError(err)
+      let msg = axios.isAxiosError(err)
           ? err.response?.data?.message ?? err.message
           : "Order failed";
+
+      if (msg.toLowerCase().includes("invalid outcome id") || msg.toLowerCase().includes("not found")) {
+        msg = "Market sync issue. Please refresh the terminal and try again.";
+      } else if (msg.toLowerCase().includes("liquidity")) {
+        msg = "Order rejected: Insufficient market depth.";
+      }
+
       setOrderError(msg);
     } finally {
       setOrdering(false);
     }
   };
 
-  // ── Derived display values
   const currencySymbol = currency === "USD" ? "$" : "₦";
-  // For NGN, base multiplier is 100 — so ₦100 = $1
-  const displayAmount = currency === "NGN"
-    ? `₦${parseFloat(amount || "0").toLocaleString()}`
-    : usd(parseFloat(amount || "0"));
-
-  const showFee = quote && quote.fee > 0; // AMM has fee=0 (embedded in price)
-  const feeNote =
-    engine === "AMM"
-      ? "Fee is embedded in the execution price above."
-      : `${currencySymbol}${quote?.fee.toFixed(2) ?? "—"} deducted from shares received`;
 
   const priceImpact =
     quote && quote.currentMarketPrice
       ? ((quote.price - quote.currentMarketPrice) / quote.currentMarketPrice) * 100
       : null;
 
-
-
-  // If order succeeded, show confirmation state
   if (orderResult) {
     return (
       <div className="quote-drawer quote-drawer--confirmed">
@@ -243,7 +235,6 @@ export default function QuoteDrawer({
         <p className="qd-confirm-sub">
           The order has been broadcast to the Bayse network.
         </p>
-        
         <div className="w-full bg-black/20 border border-white/5 rounded-lg p-3 my-2 space-y-2">
           <div className="flex justify-between text-[10px] font-mono">
             <span className="text-slate-500 uppercase">Status</span>
@@ -254,7 +245,6 @@ export default function QuoteDrawer({
             <span className="text-slate-300 truncate ml-4">{orderResult.id}</span>
           </div>
         </div>
-
         <button className="qd-btn qd-btn--secondary w-full" onClick={onClose}>
           Return to Dashboard
         </button>
@@ -264,15 +254,13 @@ export default function QuoteDrawer({
 
   return (
     <div className="fixed inset-0 z-100 flex items-center justify-center p-4">
-      {/* Backdrop */}
       <div 
         className="absolute inset-0 bg-black/60 backdrop-blur-md transition-opacity duration-300" 
         onClick={onClose} 
       />
       
-      {/* Drawer Content */}
       <div className="quote-drawer relative z-10 animate-in fade-in zoom-in duration-300 max-h-[95vh] overflow-y-auto">
-        {/* ── Header */}
+        {/* Header */}
         <div className="qd-header">
           <Zap size={14} className="text-blue-400" />
           <span className="qd-header-title">Trade Intelligence</span>
@@ -284,10 +272,7 @@ export default function QuoteDrawer({
           </button>
         </div>
 
-        {/* ... Rest of the component content ... */}
-        {/* I will truncate for the replacement but keep the internal logic */}
-        
-        {/* ── Side + Outcome selectors */}
+        {/* Side + Outcome */}
         <div className="qd-row flex gap-4">
           <div className="qd-field qd-field--half flex-1">
             <label className="qd-label">Side</label>
@@ -310,22 +295,15 @@ export default function QuoteDrawer({
           <div className="qd-field qd-field--half flex-1">
             <label className="qd-label">Outcome</label>
             <div className="qd-toggle-group">
-              {[
-                { label: "YES", id: yesOutcomeId ?? "YES" },
-                { label: "NO", id: noOutcomeId ?? "NO" },
-              ].map((o) => (
+              {(["YES", "NO"] as const).map((label) => (
                 <button
-                  key={o.label}
-                  className={`qd-toggle ${outcome === o.id ? "qd-toggle--active" : ""}`}
-                  onClick={() => setOutcome(o.id)}
+                  key={label}
+                  className={`qd-toggle ${outcomeLabel === label ? "qd-toggle--active" : ""}`}
+                  onClick={() => setOutcomeLabel(label)}
                 >
                   <div className="flex items-center justify-center gap-1.5">
-                    {o.label === "YES" ? (
-                      <ArrowUpRight size={10} />
-                    ) : (
-                      <ArrowDownRight size={10} />
-                    )}
-                    {o.label}
+                    {label === "YES" ? <ArrowUpRight size={10} /> : <ArrowDownRight size={10} />}
+                    {label}
                   </div>
                 </button>
               ))}
@@ -333,7 +311,7 @@ export default function QuoteDrawer({
           </div>
         </div>
 
-        {/* ── Currency selector */}
+        {/* Currency */}
         <div className="qd-field">
           <label className="qd-label">Currency</label>
           <div className="qd-toggle-group">
@@ -349,7 +327,7 @@ export default function QuoteDrawer({
           </div>
         </div>
 
-        {/* ── Amount input */}
+        {/* Amount */}
         <div className="qd-field">
           <label className="qd-label" htmlFor="qd-amount">
             Amount ({currency})
@@ -369,7 +347,7 @@ export default function QuoteDrawer({
           </div>
         </div>
 
-        {/* ── CLOB-only: limit price + time-in-force */}
+        {/* CLOB only */}
         {engine === "CLOB" && (
           <>
             <div className="qd-field">
@@ -416,7 +394,7 @@ export default function QuoteDrawer({
           </>
         )}
 
-        {/* ── Quote preview panel */}
+        {/* Quote panel */}
         <div className={`qd-quote-panel ${quoteLoading ? "qd-quote-panel--loading" : ""} ${quote ? "qd-quote-panel--ready" : ""}`}>
           {quoteLoading && (
             <div className="qd-quote-skeleton flex flex-col items-center gap-2 py-4">
@@ -475,14 +453,12 @@ export default function QuoteDrawer({
               <div className="qd-quote-divider h-px bg-white/5 my-2" />
 
               <div className="qd-quote-row qd-quote-row--total flex justify-between items-end">
-                <span className="qd-quote-label font-bold text-slate-400">
-                  Total cost
-                </span>
+                <span className="qd-quote-label font-bold text-slate-400">Total cost</span>
                 <span className="qd-quote-value text-2xl font-black">
                   {currencySymbol}{quote.amount.toFixed(currency === "NGN" ? 0 : 2)}
                 </span>
               </div>
-              
+
               {quote && aiProbability && (
                 <div className="mt-4 p-4 bg-blue-600/10 border border-blue-500/20 rounded-2xl">
                   <div className="flex justify-between items-center mb-3">
@@ -493,18 +469,17 @@ export default function QuoteDrawer({
                       AI CONF: {(aiProbability * 100).toFixed(0)}%
                     </span>
                   </div>
-                  
                   <div className="space-y-2">
                     <div className="flex justify-between text-[11px] font-medium">
                       <span className="text-slate-500">Payout if Correct</span>
                       <span className="text-white font-mono">
-                        {currencySymbol}{((quote.quantity) * (currency === "NGN" ? 100 : 1)).toFixed(currency === "NGN" ? 0 : 2)}
+                        {currencySymbol}{(quote.quantity * quote.currencyBaseMultiplier).toFixed(currency === "NGN" ? 0 : 2)}
                       </span>
                     </div>
                     <div className="flex justify-between text-[11px] font-bold">
                       <span className="text-slate-500">Potential Profit</span>
                       <span className="text-emerald-400 font-mono">
-                        +{currencySymbol}{( ((quote.quantity) * (currency === "NGN" ? 100 : 1)) - quote.amount ).toFixed(currency === "NGN" ? 0 : 2)}
+                        +{currencySymbol}{((quote.quantity * quote.currencyBaseMultiplier) - quote.amount).toFixed(currency === "NGN" ? 0 : 2)}
                       </span>
                     </div>
                     <div className="flex justify-between text-[11px] pt-2 border-t border-blue-500/10 mt-2">
@@ -520,11 +495,13 @@ export default function QuoteDrawer({
           )}
 
           {!quote && !quoteLoading && !quoteError && (
-            <p className="qd-quote-hint text-center py-4 text-slate-600 text-[10px] uppercase font-bold tracking-widest">Enter an amount to preview your order</p>
+            <p className="qd-quote-hint text-center py-4 text-slate-600 text-[10px] uppercase font-bold tracking-widest">
+              Enter an amount to preview your order
+            </p>
           )}
         </div>
 
-        {/* ── Action buttons */}
+        {/* Actions */}
         <div className="qd-actions flex gap-4">
           <button
             className="qd-btn qd-btn--secondary flex-1"
@@ -547,7 +524,9 @@ export default function QuoteDrawer({
         </div>
 
         {orderError && (
-          <div className="qd-order-error text-center text-rose-500 text-[10px] font-bold uppercase mt-2">⚠ {orderError}</div>
+          <div className="qd-order-error text-center text-rose-500 text-[10px] font-bold uppercase mt-2">
+            ⚠ {orderError}
+          </div>  //currency === "NGN" ? 100 : 1)
         )}
       </div>
     </div>

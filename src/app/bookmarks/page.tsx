@@ -36,7 +36,7 @@ export default function BookmarksPage() {
   const fetchSignals = useCallback(async (force = false) => {
     setLoading(true);
     try {
-      const data = await analyzeMarkets(force);
+      const data = await analyzeMarkets(force, currency, "", true); // Fetch from VAULT
       setSignals(data.signals || []);
     } catch (err) {
       console.error("BOOKMARKS_FETCH_ERROR:", err);

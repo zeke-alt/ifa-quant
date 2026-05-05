@@ -10,14 +10,19 @@ import { bayseRead } from "@/lib/bayse-server";
 
 export async function GET() {
   try {
-    // Fetch open events
-    const data = await bayseRead("/v1/pm/events?status=open&size=50&page=1");
-    const events: any[] = data.events ?? [];
+    // Fetch both open and settled events to provide rich historical data for backtesting
+    const [openData, settledData] = await Promise.all([
+      bayseRead("/v1/pm/events?status=open&size=50&page=1"),
+      bayseRead("/v1/pm/events?status=settled&size=50&page=1")
+    ]);
+
+    const events: any[] = [...(openData.events ?? []), ...(settledData.events ?? [])];
 
     // Normalize to the shape the Quant Lab page expects
     const markets = events.map((event: any) => ({
       id: event.id,
-      question: event.title,
+      marketIds: event.markets?.map((m: any) => m.id) || [],
+      question: `${event.status === 'settled' ? '[HISTORICAL] ' : ''}${event.title}`,
       probability: event.markets?.[0]?.outcome1Price ?? 0.5,
     }));
 

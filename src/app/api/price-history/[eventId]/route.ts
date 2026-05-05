@@ -9,9 +9,15 @@ async function fetchHistory(eventId: string, timePeriod: string, outcome: string
 
   const allPoints: { t: string; p: number }[] = [];
 
+  if (!data || typeof data !== "object" || data.error) {
+    console.warn("Bayse API returned error or invalid data:", data);
+    return [];
+  }
+
   for (const marketId of Object.keys(data)) {
-    const entries: { outcome: string; price: number; timestamp: string }[] =
-      data[marketId] ?? [];
+    const entries = data[marketId];
+    if (!Array.isArray(entries)) continue;
+
     for (const entry of entries) {
       if (typeof entry.price === "number" && entry.price >= 0 && entry.price <= 1) {
         allPoints.push({ t: entry.timestamp, p: entry.price });

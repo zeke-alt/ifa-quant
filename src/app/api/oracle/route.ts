@@ -184,11 +184,29 @@ INSTRUCTIONS:
       ],
     };
 
-    let response = await getAI().models.generateContent({
-      model: "gemini-2.5-flash-lite", // Reverted per user request
-      contents: fullContents,
-      config,
-    });
+    let response;
+    let aiRetries = 3;
+    for (let i = 0; i < aiRetries; i++) {
+      try {
+        response = await getAI().models.generateContent({
+          model: "gemini-2.5-flash-lite", // Reverted per user request
+          contents: fullContents,
+          config,
+        });
+        break; // Success
+      } catch (err: any) {
+        const isRateLimit = err?.status === 429 || err?.message?.includes("429") || err?.message?.includes("RESOURCE_EXHAUSTED");
+        if (isRateLimit && i < aiRetries - 1) {
+          const delay = 1000 * (2 ** i) * 1.5;
+          console.warn(`[Vertex AI 429 Rate Limit] Oracle retrying in ${delay}ms...`);
+          await new Promise(r => setTimeout(r, delay));
+          continue;
+        }
+        throw err;
+      }
+    }
+
+    if (!response) throw new Error("Vertex AI returned no response");
 
     // Handle tool calls in a loop (max 5 iterations to prevent infinite loops)
     let iterations = 0;
@@ -230,11 +248,25 @@ INSTRUCTIONS:
         parts: toolResults,
       });
 
-      response = await getAI().models.generateContent({
-        model: "gemini-2.5-flash-lite",
-        contents: fullContents,
-        config,
-      });
+      for (let i = 0; i < aiRetries; i++) {
+        try {
+          response = await getAI().models.generateContent({
+            model: "gemini-2.5-flash-lite",
+            contents: fullContents,
+            config,
+          });
+          break; // Success
+        } catch (err: any) {
+          const isRateLimit = err?.status === 429 || err?.message?.includes("429") || err?.message?.includes("RESOURCE_EXHAUSTED");
+          if (isRateLimit && i < aiRetries - 1) {
+            const delay = 1000 * (2 ** i) * 1.5;
+            console.warn(`[Vertex AI 429 Rate Limit] Oracle tool call retrying in ${delay}ms...`);
+            await new Promise(r => setTimeout(r, delay));
+            continue;
+          }
+          throw err;
+        }
+      }
     }
 
     const text = response.text;

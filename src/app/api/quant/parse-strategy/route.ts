@@ -65,7 +65,7 @@ export async function POST(req: Request) {
       },
     });
 
-    const responseText = result.text || result.response?.text?.() || "";
+    const responseText = result.text || "";
     if (!responseText) throw new Error("Gemini returned empty response");
 
     // Clean markdown if present

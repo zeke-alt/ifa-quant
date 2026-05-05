@@ -46,8 +46,7 @@ export async function bayseRead(path: string, retries = 3) {
     try {
       const res = await fetch(`${BASE_URL}${path}`, {
         headers: { 'X-Public-Key': PUBLIC_KEY },
-        // Add a signal to manually control timeout if needed, 
-        // but standard fetch uses environment defaults.
+        signal: AbortSignal.timeout(30000),
       });
       
       console.log(`Bayse Read Status (Attempt ${i + 1}):`, res.status);
@@ -99,6 +98,7 @@ export async function bayseWrite(method: string, path: string, body: object) {
       'Content-Type': 'application/json',
     },
     body: bodyStr,
+    signal: AbortSignal.timeout(30000),
   });
   
   return res.json();

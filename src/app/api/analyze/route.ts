@@ -60,13 +60,32 @@ function writeDiskCache(currency: string, data: any, timestamp: number) {
   }
 }
 
+const HISTORY_CACHE_PATH = path.join(CACHE_DIR, 'signal-history.json');
+
+function loadSignalHistory() {
+  try {
+    return JSON.parse(fs.readFileSync(HISTORY_CACHE_PATH, 'utf-8'));
+  } catch {
+    return {};
+  }
+}
+
+function saveSignalHistory(history: any) {
+  try {
+    if (!fs.existsSync(CACHE_DIR)) fs.mkdirSync(CACHE_DIR, { recursive: true });
+    fs.writeFileSync(HISTORY_CACHE_PATH, JSON.stringify(history), 'utf-8');
+  } catch (e) {
+    console.warn("HISTORY_CACHE_WRITE_FAILED:", e);
+  }
+}
+
 let memCache: Record<string, { data: any; timestamp: number }> = {};
 
 // Logic: The "Stability Latch"
 // We store a global history of signals to prevent AI jitter.
 // If a new prediction is within 4% of the old one, we stick with the old one.
 const STABILITY_THRESHOLD = 0.04;
-let signalHistory: Record<string, any> = {};
+let signalHistory: Record<string, any> = loadSignalHistory();
 
 // ─────────────────────────────────────────────
 // USDNGN SENSITIVITY FILTER
@@ -127,16 +146,19 @@ interface MacroDataPoint {
   note?: string;
 }
 
+function getFetchOptions() {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 5000); // 5 second timeout
+  return { signal: controller.signal, next: { revalidate: 1800 } };
+}
+
 /**
  * Fetches live FX rates relevant to Nigeria from exchangerate-api (free tier).
  * Targets: USDNGN, EURUSD, DXY proxy pairs.
  */
 async function fetchFXRates(): Promise<MacroDataPoint[]> {
   try {
-    const res = await fetch(
-      "https://open.er-api.com/v6/latest/USD",
-      { next: { revalidate: 1800 } } // Next.js cache hint
-    );
+    const res = await fetch("https://open.er-api.com/v6/latest/USD", getFetchOptions());
     if (!res.ok) throw new Error(`FX API status: ${res.status}`);
     const data = await res.json();
     const rates = data.rates ?? {};
@@ -187,12 +209,10 @@ async function fetchFXRates(): Promise<MacroDataPoint[]> {
  */
 async function fetchOilPrice(): Promise<MacroDataPoint[]> {
   try {
-    // Using CoinGecko as a free proxy isn't ideal for oil —
-    // we use a lightweight public price API instead.
     const res = await fetch(
       "https://api.allorigins.win/raw?url=" +
         encodeURIComponent("https://query1.finance.yahoo.com/v8/finance/chart/BZ%3DF?interval=1d&range=1d"),
-      { next: { revalidate: 1800 } }
+      getFetchOptions()
     );
     if (!res.ok) throw new Error(`Oil API status: ${res.status}`);
     const data = await res.json();
@@ -223,7 +243,7 @@ async function fetchCryptoPrices(): Promise<MacroDataPoint[]> {
   try {
     const res = await fetch(
       "https://api.coingecko.com/api/v3/simple/price?ids=bitcoin,ethereum&vs_currencies=usd&include_24hr_change=true",
-      { next: { revalidate: 1800 } }
+      getFetchOptions()
     );
     if (!res.ok) throw new Error(`Crypto API status: ${res.status}`);
     const data = await res.json();
@@ -261,7 +281,7 @@ async function fetchFearGreedIndex(): Promise<MacroDataPoint[]> {
   try {
     const res = await fetch(
       "https://api.alternative.me/fng/?limit=1",
-      { next: { revalidate: 1800 } }
+      getFetchOptions()
     );
     if (!res.ok) throw new Error(`F&G API status: ${res.status}`);
     const data = await res.json();
@@ -330,10 +350,14 @@ export async function GET(req: Request) {
   const eventId = searchParams.get("eventId");
   const currency = searchParams.get("currency") || "USD";
   const query = searchParams.get("query");
+  const isVault = searchParams.get("vault") === "true";
+  if (isVault) {
+    return Response.json({ signals: Object.values(signalHistory) });
+  }
 
-  const cacheKey = !eventId && !query ? "GLOBAL" : currency;
+  const cacheKey = !eventId && !query ? "GLOBAL" : (eventId ? `EVENT_${eventId}` : `QUERY_${query}_${currency}`);
 
-  if (!eventId && !force && !query) {
+  if (!force) {
     // 1. Memory
     if (memCache[cacheKey] && Date.now() - memCache[cacheKey].timestamp < CACHE_DURATION) {
       console.log(`MEM_CACHE_HIT: Serving ${cacheKey} signals from memory.`);
@@ -354,8 +378,8 @@ export async function GET(req: Request) {
     let events: any[] = [];
 
     if (eventId) {
-      console.log(`ANALYSIS_START: Fetching specific event ${eventId} from Bayse...`);
-      const data = await bayseRead(`/v1/pm/events/${eventId}`);
+      console.log(`ANALYSIS_START: Fetching specific event ${eventId} (${currency}) from Bayse...`);
+      const data = await bayseRead(`/v1/pm/events/${eventId}?currency=${currency}`);
       const event = data.event || (data.id ? data : null);
       events = event ? [event] : [];
     } else if (query) {
@@ -385,8 +409,8 @@ export async function GET(req: Request) {
         eventTitle: e.title,
         marketId: m.id,
         marketTitle: m.title,
-        yesOutcomeId: m.outcomes?.[0]?.id,
-        noOutcomeId: m.outcomes?.[1]?.id,
+        yesOutcomeId: m.outcomes?.find((o: any) => o.title.toLowerCase().includes('yes'))?.id || m.outcome1?.id || m.outcomes?.[0]?.id,
+        noOutcomeId: m.outcomes?.find((o: any) => o.title.toLowerCase().includes('no'))?.id || m.outcome2?.id || m.outcomes?.[1]?.id,
         yesProbability: m.outcome1Price,
         totalOrders: m.totalOrders,
         liquidity: e.liquidity,
@@ -414,6 +438,18 @@ export async function GET(req: Request) {
           description: `Liquidity: $${(m.liquidity ?? 0).toLocaleString()}, Orders: ${m.totalOrders ?? 0}`,
         },
       };
+    });
+
+    // Step 3.1: Create a verified ID map to enforce Source of Truth (Don't trust AI with UUIDs)
+    const verifiedIdMap = new Map<string, { yes?: string, no?: string }>();
+    marketsWithMath.forEach((m: any) => {
+      // Ensure we don't accidentally use the market ID as an outcome ID
+      const y = m.yesOutcomeId !== m.marketId ? m.yesOutcomeId : undefined;
+      const n = m.noOutcomeId !== m.marketId ? m.noOutcomeId : undefined;
+      
+      if (y || n) {
+        verifiedIdMap.set(m.marketId, { yes: y, no: n });
+      }
     });
 
     // Step 4a: Fetch Live News Context
@@ -507,16 +543,32 @@ Return a JSON object:
 Find the alpha. Focus on Nigerian/African macro context. Let the live data speak.`;
 
     // Step 6: Invoke Vertex AI
-    const result = await getAI().models.generateContent({
-      model: "gemini-2.5-flash-lite",
-      contents: prompt,
-      config: {
-        responseMimeType: "application/json",
-        maxOutputTokens: 8192,
-      },
-    });
+    let result;
+    let aiRetries = 3;
+    for (let i = 0; i < aiRetries; i++) {
+      try {
+        result = await getAI().models.generateContent({
+          model: "gemini-2.5-flash-lite",
+          contents: prompt,
+          config: {
+            responseMimeType: "application/json",
+            maxOutputTokens: 8192,
+          },
+        });
+        break; // Success, exit retry loop
+      } catch (err: any) {
+        const isRateLimit = err?.status === 429 || err?.message?.includes("429") || err?.message?.includes("RESOURCE_EXHAUSTED");
+        if (isRateLimit && i < aiRetries - 1) {
+          const delay = 1000 * (2 ** i) * 1.5; // 1.5s, 3s
+          console.warn(`[Vertex AI 429 Rate Limit] Retrying in ${delay}ms...`);
+          await new Promise(r => setTimeout(r, delay));
+          continue;
+        }
+        throw err;
+      }
+    }
 
-    let responseText = result.text;
+    let responseText = result?.text;
     if (!responseText) throw new Error("Vertex AI returned no text");
 
     // Clean response text
@@ -551,33 +603,48 @@ Find the alpha. Focus on Nigerian/African macro context. Let the live data speak
       return true;
     });
 
-    // Apply Stability Latch
+    // Apply Stability Latch & Strict ID Enforcement
     signals.signals = signals.signals.map((s: any) => {
+      // 1. FORCED ENFORCEMENT: Always get the verified IDs from the current live data
+      const verified = verifiedIdMap.get(s.marketId);
+
       const prev = signalHistory[s.marketId];
       if (prev && prev.yesOutcomeId && prev.noOutcomeId) {
         const delta = Math.abs(Number(s.probability) - Number(prev.probability));
         if (delta < STABILITY_THRESHOLD) {
           console.log(`LATCH_ACTIVE: Stabilizing ${s.marketId} (delta: ${(delta * 100).toFixed(1)}%)`);
-          return {
+          
+          // Re-inject verified IDs even into the stabilized signal
+          const stabilizedSignal = {
             ...s,
             probability: prev.probability,
             logic: prev.logic,
             recommendation: prev.recommendation,
-            yesOutcomeId: prev.yesOutcomeId,
-            noOutcomeId: prev.noOutcomeId,
+            yesOutcomeId: verified?.yes || prev.yesOutcomeId,
+            noOutcomeId: verified?.no || prev.noOutcomeId,
             endDate: prev.endDate,
             market_question: s.marketTitle,
             hasChanged: false,
           };
+
+          return stabilizedSignal;
         }
         // Significant change detected
         console.log(`LATCH_BROKEN: Significant shift in ${s.marketId} (delta: ${(delta * 100).toFixed(1)}%)`);
         s.hasChanged = true;
       }
 
+      // If not latched, ensure we still use verified IDs if available
+      if (verified) {
+        if (verified.yes) s.yesOutcomeId = verified.yes;
+        if (verified.no) s.noOutcomeId = verified.no;
+      }
+
       signalHistory[s.marketId] = s;
       return { ...s, market_question: s.marketTitle };
     });
+
+    saveSignalHistory(signalHistory);
 
     // Update both memory and disk cache
     const timestamp = Date.now();

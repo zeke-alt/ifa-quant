@@ -320,6 +320,17 @@ export default function Dashboard() {
       } else {
         setLastUpdated(new Date().toLocaleTimeString());
       }
+
+      // Pre-load historical vault to auto-render already-analyzed searched events
+      const vaultData = await analyzeMarkets(false, currency, "", true);
+      if (vaultData && vaultData.signals) {
+        const analyzedRecord: Record<string, MacroSignal> = {};
+        vaultData.signals.forEach((s: any) => {
+          analyzedRecord[s.eventId] = s;
+        });
+        setAnalyzedSearchResults(prev => ({...prev, ...analyzedRecord}));
+      }
+
     } catch (err) {
       console.error("Inference stream interrupted", err);
     } finally {
@@ -372,7 +383,7 @@ export default function Dashboard() {
     console.log("ANALYSIS_REQUESTED:", eventId);
     setAnalyzingEventId(eventId);
     try {
-      const res = await fetch(`/api/analyze?eventId=${eventId}`);
+      const res = await fetch(`/api/analyze?eventId=${eventId}&currency=${currency}`);
       const data = await res.json();
       console.log("ANALYSIS_RESPONSE:", data);
       if (data.signals && data.signals.length > 0) {

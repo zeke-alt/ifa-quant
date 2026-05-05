@@ -41,11 +41,12 @@ export async function bayse(path: string, options?: RequestInit) {
  * @param currency The target currency (USD/NGN)
  * @param query Optional search query to fetch specific market signals
  */
-export async function analyzeMarkets(force = false, currency = 'USD', query = '') {
+export async function analyzeMarkets(force = false, currency = 'USD', query = '', vault = false) {
   const params = new URLSearchParams();
   if (force) params.append("force", "true");
   params.append("currency", currency);
   if (query) params.append("query", query);
+  if (vault) params.append("vault", "true");
   
   const res = await fetch(`/api/analyze?${params.toString()}`);
   

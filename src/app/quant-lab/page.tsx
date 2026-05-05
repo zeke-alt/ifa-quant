@@ -69,10 +69,79 @@ interface Strategy {
   holdDays: number;
 }
 
+function calculateStats(trades: BacktestTrade[], equity: { date: string; value: number }[]) {
+  const winners = trades.filter((t) => t.pnl > 0);
+  const winRate = trades.length ? (winners.length / trades.length) * 100 : 0;
+  const equityValue = equity.length ? equity[equity.length - 1].value : 100;
+  const totalReturn = equityValue - 100;
+  const avgReturn = trades.length
+    ? trades.reduce((s, t) => s + t.pnl, 0) / trades.length
+    : 0;
+
+  let peak = 100;
+  let maxDrawdown = 0;
+  for (const { value } of equity) {
+    if (value > peak) peak = value;
+    const dd = peak - value;
+    if (dd > maxDrawdown) maxDrawdown = dd;
+  }
+
+  // Quant metrics
+  const returns = trades.map(t => t.pnl);
+  const stdDev = returns.length > 1 ? Math.sqrt(returns.map(x => Math.pow(x - (avgReturn || 0), 2)).reduce((a, b) => a + b) / returns.length) : 0;
+  const sharpe = stdDev > 0 ? (avgReturn / stdDev) * Math.sqrt(252) : 0; // Annualized proxy
+
+  return {
+    trades,
+    equity,
+    winRate: parseFloat(winRate.toFixed(1)),
+    totalReturn: parseFloat(totalReturn.toFixed(2)),
+    avgReturn: parseFloat(avgReturn.toFixed(2)),
+    maxDrawdown: parseFloat(maxDrawdown.toFixed(2)),
+    totalTrades: trades.length,
+    sharpe: parseFloat(sharpe.toFixed(2)),
+  };
+}
+
+function generateMonteCarlo(history: PricePoint[], paths = 5, days = 14) {
+  if (history.length < 2) return [];
+  
+  // Calculate daily volatility
+  const returns = [];
+  for (let i = 1; i < history.length; i++) {
+    const prev = history[i-1].p || 0.01;
+    returns.push((history[i].p - prev) / prev);
+  }
+  const avgReturn = returns.reduce((a, b) => a + b, 0) / returns.length;
+  const vol = Math.sqrt(returns.map(x => Math.pow(x - avgReturn, 2)).reduce((a, b) => a + b) / returns.length);
+
+  const lastPoint = history[history.length - 1];
+  const lastPrice = lastPoint.p;
+  const lastDate = new Date(lastPoint.t);
+  
+  const allPaths = [];
+  for (let p = 0; p < paths; p++) {
+    const path = [];
+    let currentPrice = lastPrice;
+    for (let d = 1; d <= days; d++) {
+      const shock = (Math.random() * 2 - 1) * (vol || 0.02);
+      currentPrice = Math.max(0.01, Math.min(0.99, currentPrice * (1 + shock)));
+      const date = new Date(lastDate);
+      date.setDate(date.getDate() + d);
+      path.push({ 
+        t: date.toISOString(), 
+        p: parseFloat(currentPrice.toFixed(4)),
+      });
+    }
+    allPaths.push(path);
+  }
+  return allPaths;
+}
+
 function runBacktest(
   priceHistory: PricePoint[],
   strategy: Strategy
-): BacktestResult {
+): BacktestResult & { sharpe: number } {
   const trades: BacktestTrade[] = [];
   const equity: { date: string; value: number }[] = [];
 
@@ -131,30 +200,7 @@ function runBacktest(
     equity.push({ date: dateLabel, value: parseFloat(equityValue.toFixed(2)) });
   }
 
-  const winners = trades.filter((t) => t.pnl > 0);
-  const winRate = trades.length ? (winners.length / trades.length) * 100 : 0;
-  const totalReturn = equityValue - 100;
-  const avgReturn = trades.length
-    ? trades.reduce((s, t) => s + t.pnl, 0) / trades.length
-    : 0;
-
-  let peak = 100;
-  let maxDrawdown = 0;
-  for (const { value } of equity) {
-    if (value > peak) peak = value;
-    const dd = peak - value;
-    if (dd > maxDrawdown) maxDrawdown = dd;
-  }
-
-  return {
-    trades,
-    equity,
-    winRate: parseFloat(winRate.toFixed(1)),
-    totalReturn: parseFloat(totalReturn.toFixed(2)),
-    avgReturn: parseFloat(avgReturn.toFixed(2)),
-    maxDrawdown: parseFloat(maxDrawdown.toFixed(2)),
-    totalTrades: trades.length,
-  };
+  return calculateStats(trades, equity);
 }
 
 const CustomTooltip = ({ active, payload, label }: any) => {
@@ -218,7 +264,7 @@ export default function QuantLabPage() {
     exitThreshold: 0.7,
     holdDays: 14,
   });
-  const [result, setResult] = useState<BacktestResult | null>(null);
+  const [result, setResult] = useState<(BacktestResult & { sharpe: number }) | null>(null);
   const [loading, setLoading] = useState(false);
   const [fetchingMarkets, setFetchingMarkets] = useState(true);
   const [error, setError] = useState("");
@@ -226,6 +272,8 @@ export default function QuantLabPage() {
   const [aiPrompt, setAiPrompt] = useState("");
   const [parsingAi, setParsingAi] = useState(false);
   const [aiReasoning, setAiReasoning] = useState("");
+  const [mcPaths, setMcPaths] = useState<any[][]>([]);
+  const [showMC, setShowMC] = useState(false);
   const { bookmarks } = useBookmarks();
   const { isSidebarCollapsed } = useLayout();
 
@@ -303,10 +351,28 @@ export default function QuantLabPage() {
   useEffect(() => {
     const fetchMarkets = async () => {
       try {
-        const res = await fetch("/api/markets");
+        // Fetch from Vault to ensure all analyzed/searched events are included
+        const res = await fetch("/api/analyze?vault=true");
         const data = await res.json();
-        setMarkets(data.markets || []);
-        if (data.markets?.length) setSelectedMarket(data.markets[0].id);
+        const vaultSignals = data.signals || [];
+        
+        const marketMap = new Map();
+        vaultSignals.forEach((s: any) => {
+          if (marketMap.has(s.eventId)) {
+            marketMap.get(s.eventId).marketIds.push(s.marketId);
+          } else {
+            marketMap.set(s.eventId, {
+              id: s.eventId,
+              marketIds: [s.marketId],
+              question: s.eventTitle || s.market_question || `Event ${s.eventId}`,
+              probability: s.probability
+            });
+          }
+        });
+        const uniqueMarkets = Array.from(marketMap.values()) as Market[];
+        
+        setMarkets(uniqueMarkets);
+        if (uniqueMarkets.length) setSelectedMarket(uniqueMarkets[0].id);
       } catch {
         setError("Could not load markets. Check your API connection.");
       } finally {
@@ -335,6 +401,11 @@ export default function QuantLabPage() {
 
       const backtestResult = runBacktest(history, strategy);
       setResult(backtestResult);
+      
+      // Generate Monte Carlo paths
+      const paths = generateMonteCarlo(history, 8, 14);
+      setMcPaths(paths);
+      setShowMC(true);
     } catch {
       setError("Failed to fetch market history.");
     } finally {
@@ -345,6 +416,8 @@ export default function QuantLabPage() {
   const handleReset = () => {
     setResult(null);
     setError("");
+    setMcPaths([]);
+    setShowMC(false);
     setStrategy({ direction: "BUY", entryThreshold: 0.3, exitThreshold: 0.7, holdDays: 14 });
   };
 
@@ -441,10 +514,7 @@ export default function QuantLabPage() {
                   {/* Market Selection */}
                   <div className="sm:col-span-2">
                     <div className="flex justify-between items-center mb-2">
-                      <label className="text-[8px] font-bold text-muted-foreground uppercase tracking-widest">MARKET</label>
-                      <button onClick={() => setShowBookmarkedOnly(!showBookmarkedOnly)} className={cn("text-[8px] font-bold px-2 py-0.5 border uppercase rounded-sm", showBookmarkedOnly ? "bg-primary/10 border-primary text-primary" : "border-border text-muted-foreground")}>
-                        Bookmarks_Only
-                      </button>
+                      <label className="text-[8px] font-bold text-muted-foreground uppercase tracking-widest">MARKET (SAVED ALPHA ONLY)</label>
                     </div>
                     <select
                       value={selectedMarket}
@@ -455,18 +525,18 @@ export default function QuantLabPage() {
                         <option>Loading_Nodes...</option>
                       ) : (
                         markets
-                          .filter(m => !showBookmarkedOnly || bookmarks.includes(m.id))
+                          .filter(m => (m as any).marketIds?.some((id: string) => bookmarks.includes(id)))
                           .map((m) => (
                             <option key={m.id} value={m.id}>
-                              {m.question.slice(0, 100)}
+                              {m.question.startsWith('[HISTORICAL]') ? '📜' : '🔴'} {m.question.slice(0, 80)}
                             </option>
                           ))
                       )}
                     </select>
                     <div className="mt-1 bg-blue-500/5 border border-blue-500/10 px-4 py-3">
                       <p className="text-[9px] font-mono text-blue-400/80 leading-relaxed">
-                        <span className="font-black text-blue-400 uppercase tracking-tighter mr-1">Pro Tip //</span>
-                        For the best results, select markets with high trading volume or those open for at least 30 days. New or low-activity markets may have sparse price history.
+                        <span className="font-black text-blue-400 uppercase tracking-tighter mr-1">Selection_Protocol //</span>
+                        For tomorrow's presentation, prioritize <span className="text-white font-bold underline">USD/NGN Exchange Rate</span> markets. They have the highest data density. Use 📜 [HISTORICAL] nodes for clean backtest curves (0-1 resolution) and 🔴 [LIVE] nodes to demonstrate real-time AI signal drift.
                       </p>
                     </div>
                   </div>
@@ -566,8 +636,21 @@ export default function QuantLabPage() {
               {result && !loading && (
                 <>
                   <div className="bg-card border border-border p-6">
-                    <h2 className="text-[10px] font-bold text-foreground/80 uppercase tracking-widest mb-6 flex justify-between">
-                      Equity_Stream_Analytics
+                    <h2 className="text-[10px] font-bold text-foreground/80 uppercase tracking-widest mb-6 flex justify-between items-center">
+                      <span className="flex items-center gap-2">
+                        Equity_Stream_Analytics
+                        <span className="bg-blue-500/10 text-blue-400 border border-blue-500/20 px-1.5 py-0.5 text-[7px] font-mono font-bold uppercase tracking-widest">
+                          {mcPaths.length > 0 ? result?.equity?.length : 0}_DATA_POINTS
+                        </span>
+                        {mcPaths.length > 0 && (
+                          <button 
+                            onClick={() => setShowMC(!showMC)}
+                            className={cn("px-2 py-0.5 border text-[7px] font-black uppercase transition-all", showMC ? "bg-purple-500/20 border-purple-500 text-purple-400" : "border-border text-muted-foreground")}
+                          >
+                            {showMC ? "Hide_MC_Projections" : "Show_MC_Projections"}
+                          </button>
+                        )}
+                      </span>
                       <span className={cn("text-[9px]", result.totalReturn >= 0 ? "text-emerald-500" : "text-rose-500")}>
                         {result.totalReturn >= 0 ? "+" : ""}{result.totalReturn}pp_CUMULATIVE
                       </span>
@@ -587,6 +670,20 @@ export default function QuantLabPage() {
                           <ReferenceLine y={100} stroke="currentColor" strokeOpacity={0.1} />
                           <Tooltip content={<CustomTooltip />} />
                           <Area type="stepAfter" dataKey="value" stroke={result.totalReturn >= 0 ? "#10b981" : "#f43f5e"} strokeWidth={1} fill="url(#eqGrad)" dot={false} />
+                          
+                          {showMC && mcPaths.map((path, idx) => (
+                            <Area 
+                              key={`mc-${idx}`}
+                              data={path.map(p => ({ date: new Date(p.t).toLocaleDateString("en-NG", { month: "short", day: "numeric" }), value: (p.p * 100) + (result.equity[result.equity.length-1].value - (result.equity[result.equity.length-1].value / 2)) }))} 
+                              type="monotone" 
+                              dataKey="value" 
+                              stroke="#a855f7" 
+                              strokeOpacity={0.1} 
+                              fill="none" 
+                              strokeWidth={0.5} 
+                              isAnimationActive={false}
+                            />
+                          ))}
                         </AreaChart>
                       </ResponsiveContainer>
                     </div>
@@ -651,6 +748,7 @@ export default function QuantLabPage() {
                 {result ? (
                   <div className="space-y-2">
                     <StatCard label="Total_Return" value={result.totalReturn} unit="pp" color={result.totalReturn >= 0 ? "text-emerald-500" : "text-rose-500"} icon={<TrendingUp size={14} className={result.totalReturn >= 0 ? "text-emerald-500" : "text-rose-500"} />} />
+                    <StatCard label="Sharpe_Ratio" value={result.sharpe} color="text-blue-400" icon={<Activity size={14} />} />
                     <StatCard label="Win_Rate" value={result.winRate} unit="%" color={result.winRate >= 50 ? "text-emerald-500" : "text-rose-500"} icon={<CheckCircle2 size={14} />} />
                     <StatCard label="Trade_Volume" value={result.totalTrades} color="text-foreground" />
                     <StatCard label="Max_Drawdown" value={`-${result.maxDrawdown}`} unit="pp" color="text-orange-500" />
