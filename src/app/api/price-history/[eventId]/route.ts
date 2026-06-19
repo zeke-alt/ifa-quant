@@ -14,16 +14,29 @@ async function fetchHistory(eventId: string, timePeriod: string, outcome: string
     return [];
   }
 
-  for (const marketId of Object.keys(data)) {
-    const entries = data[marketId];
-    if (!Array.isArray(entries)) continue;
+  // The Bayse Relay returns: { history: [ { marketId: string, history: [ { e: number, p: number } ] } ] }
+const marketHistories = data.markets;
+if (!Array.isArray(marketHistories)) {
+  console.warn("Bayse API history is not an array:", data);
+  return [];
+}
 
-    for (const entry of entries) {
-      if (typeof entry.price === "number" && entry.price >= 0 && entry.price <= 1) {
-        allPoints.push({ t: entry.timestamp, p: entry.price });
+for (const mHistory of marketHistories) {
+  const points = mHistory.priceHistory;
+  if (!Array.isArray(points)) continue;
+  console.log("Sample point:", points[0])
+
+    for (const point of points) {
+      if (typeof point.p === "number" && point.p >= 0 && point.p <= 1) {
+        allPoints.push({ 
+          t: new Date(point.e).toISOString(), 
+          p: point.p 
+        });
       }
     }
   }
+
+  if (allPoints.length === 0) return [];
 
   allPoints.sort((a, b) => new Date(a.t).getTime() - new Date(b.t).getTime());
 

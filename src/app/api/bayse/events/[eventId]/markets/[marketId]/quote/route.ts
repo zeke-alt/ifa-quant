@@ -49,10 +49,14 @@ export async function POST(
     }
 
     return NextResponse.json(data);
-  } catch (err) {
-    console.error("[/api/bayse/quote] Upstream error:", err);
+  } catch (err: any) {
+    console.error("[/api/bayse/quote] Upstream error details:", {
+      message: err.message,
+      code: err.code,
+      stack: err.stack,
+    });
     return NextResponse.json(
-      { message: "Failed to reach Bayse API" },
+      { message: "Failed to reach Bayse API", error: err.message },
       { status: 502 },
     );
   }

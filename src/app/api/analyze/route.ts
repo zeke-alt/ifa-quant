@@ -10,6 +10,10 @@
  *   historical relevance to USDNGN movement before being passed to the AI.
  * - Expanded Data Sources: Live FX rates, oil prices, CBN rates, and fear/greed
  *   index are fetched and injected into the prompt as structured macro context.
+ *
+ * v3 Changes:
+ * - Trade Score Gate: Low-conviction signals are forced to WAIT before
+ *   deduplication. Prevents AI from issuing BUY on illiquid or settled markets.
  */
 
 import { bayseRead } from "@/lib/bayse-server";
@@ -42,7 +46,9 @@ function diskCachePath(currency: string) {
   return path.join(CACHE_DIR, `signals-${currency}-v2.json`);
 }
 
-function readDiskCache(currency: string): { data: any; timestamp: number } | null {
+function readDiskCache(
+  currency: string,
+): { data: any; timestamp: number } | null {
   try {
     const raw = fs.readFileSync(diskCachePath(currency), "utf-8");
     return JSON.parse(raw);
@@ -54,17 +60,21 @@ function readDiskCache(currency: string): { data: any; timestamp: number } | nul
 function writeDiskCache(currency: string, data: any, timestamp: number) {
   try {
     if (!fs.existsSync(CACHE_DIR)) fs.mkdirSync(CACHE_DIR, { recursive: true });
-    fs.writeFileSync(diskCachePath(currency), JSON.stringify({ data, timestamp }), "utf-8");
+    fs.writeFileSync(
+      diskCachePath(currency),
+      JSON.stringify({ data, timestamp }),
+      "utf-8",
+    );
   } catch (e) {
     console.warn("DISK_CACHE_WRITE_FAILED:", e);
   }
 }
 
-const HISTORY_CACHE_PATH = path.join(CACHE_DIR, 'signal-history.json');
+const HISTORY_CACHE_PATH = path.join(CACHE_DIR, "signal-history.json");
 
 function loadSignalHistory() {
   try {
-    return JSON.parse(fs.readFileSync(HISTORY_CACHE_PATH, 'utf-8'));
+    return JSON.parse(fs.readFileSync(HISTORY_CACHE_PATH, "utf-8"));
   } catch {
     return {};
   }
@@ -73,7 +83,7 @@ function loadSignalHistory() {
 function saveSignalHistory(history: any) {
   try {
     if (!fs.existsSync(CACHE_DIR)) fs.mkdirSync(CACHE_DIR, { recursive: true });
-    fs.writeFileSync(HISTORY_CACHE_PATH, JSON.stringify(history), 'utf-8');
+    fs.writeFileSync(HISTORY_CACHE_PATH, JSON.stringify(history), "utf-8");
   } catch (e) {
     console.warn("HISTORY_CACHE_WRITE_FAILED:", e);
   }
@@ -94,31 +104,88 @@ let signalHistory: Record<string, any> = loadSignalHistory();
 // ─────────────────────────────────────────────
 const USDNGN_SENSITIVITY_WEIGHTS: { keywords: string[]; weight: number }[] = [
   {
-    keywords: ["cbn", "central bank of nigeria", "monetary policy committee", "fx intervention", "naira devaluation", "naira", "fx window", "official rate", "parallel market"],
+    keywords: [
+      "cbn",
+      "central bank of nigeria",
+      "monetary policy committee",
+      "fx intervention",
+      "naira devaluation",
+      "naira",
+      "fx window",
+      "official rate",
+      "parallel market",
+    ],
     weight: 1.0,
   },
   {
-    keywords: ["federal reserve", "fed rate", "fomc", "us interest rate", "powell", "rate hike", "rate cut", "us inflation"],
+    keywords: [
+      "federal reserve",
+      "fed rate",
+      "fomc",
+      "us interest rate",
+      "powell",
+      "rate hike",
+      "rate cut",
+      "us inflation",
+    ],
     weight: 0.95,
   },
   {
-    keywords: ["oil price", "brent crude", "opec", "nnpc", "crude production", "petroleum", "oil output"],
+    keywords: [
+      "oil price",
+      "brent crude",
+      "opec",
+      "nnpc",
+      "crude production",
+      "petroleum",
+      "oil output",
+    ],
     weight: 0.9,
   },
   {
-    keywords: ["foreign reserve", "external reserve", "imf nigeria", "world bank nigeria", "nigeria debt", "eurobond", "nigeria loan"],
+    keywords: [
+      "foreign reserve",
+      "external reserve",
+      "imf nigeria",
+      "world bank nigeria",
+      "nigeria debt",
+      "eurobond",
+      "nigeria loan",
+    ],
     weight: 0.85,
   },
   {
-    keywords: ["nigeria inflation", "cpi nigeria", "nbs report", "nigeria gdp", "trade balance nigeria", "current account"],
+    keywords: [
+      "nigeria inflation",
+      "cpi nigeria",
+      "nbs report",
+      "nigeria gdp",
+      "trade balance nigeria",
+      "current account",
+    ],
     weight: 0.75,
   },
   {
-    keywords: ["dollar index", "dxy", "em currencies", "emerging market", "global risk", "usd strength"],
+    keywords: [
+      "dollar index",
+      "dxy",
+      "em currencies",
+      "emerging market",
+      "global risk",
+      "usd strength",
+    ],
     weight: 0.65,
   },
   {
-    keywords: ["africa", "nigeria", "lagos", "abuja", "west africa", "ecowas", "subsaharan"],
+    keywords: [
+      "africa",
+      "nigeria",
+      "lagos",
+      "abuja",
+      "west africa",
+      "ecowas",
+      "subsaharan",
+    ],
     weight: 0.5,
   },
 ];
@@ -158,7 +225,10 @@ function getFetchOptions() {
  */
 async function fetchFXRates(): Promise<MacroDataPoint[]> {
   try {
-    const res = await fetch("https://open.er-api.com/v6/latest/USD", getFetchOptions());
+    const res = await fetch(
+      "https://open.er-api.com/v6/latest/USD",
+      getFetchOptions(),
+    );
     if (!res.ok) throw new Error(`FX API status: ${res.status}`);
     const data = await res.json();
     const rates = data.rates ?? {};
@@ -211,13 +281,14 @@ async function fetchOilPrice(): Promise<MacroDataPoint[]> {
   try {
     const res = await fetch(
       "https://api.allorigins.win/raw?url=" +
-        encodeURIComponent("https://query1.finance.yahoo.com/v8/finance/chart/BZ%3DF?interval=1d&range=1d"),
-      getFetchOptions()
+        encodeURIComponent(
+          "https://query1.finance.yahoo.com/v8/finance/chart/BZ%3DF?interval=1d&range=1d",
+        ),
+      getFetchOptions(),
     );
     if (!res.ok) throw new Error(`Oil API status: ${res.status}`);
     const data = await res.json();
-    const price =
-      data?.chart?.result?.[0]?.meta?.regularMarketPrice;
+    const price = data?.chart?.result?.[0]?.meta?.regularMarketPrice;
 
     if (!price) throw new Error("No oil price in response");
 
@@ -243,7 +314,7 @@ async function fetchCryptoPrices(): Promise<MacroDataPoint[]> {
   try {
     const res = await fetch(
       "https://api.coingecko.com/api/v3/simple/price?ids=bitcoin,ethereum&vs_currencies=usd&include_24hr_change=true",
-      getFetchOptions()
+      getFetchOptions(),
     );
     if (!res.ok) throw new Error(`Crypto API status: ${res.status}`);
     const data = await res.json();
@@ -281,7 +352,7 @@ async function fetchFearGreedIndex(): Promise<MacroDataPoint[]> {
   try {
     const res = await fetch(
       "https://api.alternative.me/fng/?limit=1",
-      getFetchOptions()
+      getFetchOptions(),
     );
     if (!res.ok) throw new Error(`F&G API status: ${res.status}`);
     const data = await res.json();
@@ -333,11 +404,46 @@ function formatMacroDataForPrompt(points: MacroDataPoint[]): string {
     points
       .map(
         (p) =>
-          `• ${p.label}: ${p.value}${p.note ? ` | NOTE: ${p.note}` : ""} [src: ${p.source}]`
+          `• ${p.label}: ${p.value}${p.note ? ` | NOTE: ${p.note}` : ""} [src: ${p.source}]`,
       )
       .join("\n") +
     "\n"
   );
+}
+
+// ─────────────────────────────────────────────
+// TRADE SCORE GATE
+// Hard-enforces WAIT on signals the AI should never greenlight.
+// Runs post-AI, pre-deduplication so bad signals are caught before caching.
+// ─────────────────────────────────────────────
+function applyTradeScoreGate(signals: any[]): any[] {
+  return signals.map((s: any) => {
+    const liquidityQuality = (s.liquidity ?? 0) / 50000;
+    const isSettled = s.yesProbability > 0.85 || s.yesProbability < 0.05;
+    const isLowLiquidity = liquidityQuality < 0.1;
+    const isLowConfidence = s.source_reliability < 0.4;
+
+    if (isSettled || isLowLiquidity || isLowConfidence) {
+      const reason = isSettled
+        ? "Market is near resolution. No edge available."
+        : isLowLiquidity
+          ? "Insufficient liquidity to trade safely."
+          : "AI confidence too low for a directional call.";
+
+      console.log(
+        `TRADE_GATE_BLOCKED: ${s.marketId} → WAIT (settled:${isSettled}, lowLiq:${isLowLiquidity}, lowConf:${isLowConfidence})`,
+      );
+
+      return {
+        ...s,
+        direction: "WAIT",
+        sentiment: "NEUTRAL",
+        recommendation: reason,
+      };
+    }
+
+    return s;
+  });
 }
 
 // ─────────────────────────────────────────────
@@ -355,11 +461,19 @@ export async function GET(req: Request) {
     return Response.json({ signals: Object.values(signalHistory) });
   }
 
-  const cacheKey = !eventId && !query ? "GLOBAL" : (eventId ? `EVENT_${eventId}` : `QUERY_${query}_${currency}`);
+  const cacheKey =
+    !eventId && !query
+      ? "GLOBAL"
+      : eventId
+        ? `EVENT_${eventId}`
+        : `QUERY_${query}_${currency}`;
 
   if (!force) {
     // 1. Memory
-    if (memCache[cacheKey] && Date.now() - memCache[cacheKey].timestamp < CACHE_DURATION) {
+    if (
+      memCache[cacheKey] &&
+      Date.now() - memCache[cacheKey].timestamp < CACHE_DURATION
+    ) {
       console.log(`MEM_CACHE_HIT: Serving ${cacheKey} signals from memory.`);
       return Response.json(memCache[cacheKey].data);
     }
@@ -367,7 +481,7 @@ export async function GET(req: Request) {
     const disk = readDiskCache(cacheKey);
     if (disk && Date.now() - disk.timestamp < CACHE_DURATION) {
       console.log(
-        `DISK_CACHE_HIT: Serving ${cacheKey} signals from disk (${Math.round((Date.now() - disk.timestamp) / 60000)}m old).`
+        `DISK_CACHE_HIT: Serving ${cacheKey} signals from disk (${Math.round((Date.now() - disk.timestamp) / 60000)}m old).`,
       );
       memCache[cacheKey] = disk;
       return Response.json(disk.data);
@@ -378,24 +492,47 @@ export async function GET(req: Request) {
     let events: any[] = [];
 
     if (eventId) {
-      console.log(`ANALYSIS_START: Fetching specific event ${eventId} (${currency}) from Bayse...`);
-      const data = await bayseRead(`/v1/pm/events/${eventId}?currency=${currency}`);
+      console.log(
+        `ANALYSIS_START: Fetching specific event ${eventId} (${currency}) from Bayse...`,
+      );
+      const data = await bayseRead(
+        `/v1/pm/events/${eventId}?currency=${currency}`,
+      );
       const event = data.event || (data.id ? data : null);
       events = event ? [event] : [];
     } else if (query) {
-      console.log(`ANALYSIS_START: Searching for "${query}" markets (${currency}) from Bayse...`);
+      console.log(
+        `ANALYSIS_START: Searching for "${query}" markets (${currency}) from Bayse...`,
+      );
       const data = await bayseRead(
-        `/v1/pm/events?status=open&limit=40&size=40&currency=${currency}&search=${encodeURIComponent(query)}`
+        `/v1/pm/events?status=open&limit=40&size=40&currency=${currency}&search=${encodeURIComponent(query)}`,
       );
       events = data.events ?? [];
     } else {
-      console.log(`ANALYSIS_START: Fetching global macro markets for stable synthesis...`);
-      const data = await bayseRead(`/v1/pm/events?status=open&limit=40&size=40`);
+      console.log(
+        `ANALYSIS_START: Fetching global macro markets for stable synthesis...`,
+      );
+      const data = await bayseRead(
+        `/v1/pm/events?status=open&limit=40&size=40`,
+      );
       events = data.events ?? [];
     }
 
     if (events.length > 0) {
-      console.log("[EVENT SAMPLE]", JSON.stringify(events[0], null, 2));
+      const e = events[0];
+      console.log("EVENT_ID:", e?.id);
+      console.log("EVENT_KEYS:", Object.keys(e || {}).join(", "));
+      console.log("MARKETS_LENGTH:", e?.markets?.length ?? "undefined");
+      console.log("SELECTIONS_LENGTH:", e?.selections?.length ?? "undefined");
+      console.log("FIRST_MARKET_ID:", e?.markets?.[0]?.id ?? "undefined");
+      console.log(
+        "FIRST_MARKET_KEYS:",
+        Object.keys(e?.markets?.[0] || {}).join(", "),
+      );
+      console.log(
+        "OUTCOMES_SAMPLE:",
+        JSON.stringify(e?.markets?.[0]?.outcomes?.slice(0, 2)),
+      );
     }
 
     if (events.length === 0) {
@@ -409,8 +546,8 @@ export async function GET(req: Request) {
         eventTitle: e.title,
         marketId: m.id,
         marketTitle: m.title,
-        yesOutcomeId: m.outcomes?.find((o: any) => o.title.toLowerCase().includes('yes'))?.id || m.outcome1?.id || m.outcomes?.[0]?.id,
-        noOutcomeId: m.outcomes?.find((o: any) => o.title.toLowerCase().includes('no'))?.id || m.outcome2?.id || m.outcomes?.[1]?.id,
+        yesOutcomeId: m.outcome1Id,
+        noOutcomeId: m.outcome2Id,
         yesProbability: m.outcome1Price,
         totalOrders: m.totalOrders,
         liquidity: e.liquidity,
@@ -419,7 +556,7 @@ export async function GET(req: Request) {
         closingDate: e.closingDate || null,
         resolutionDate: e.resolutionDate || null,
         endDate: e.closingDate || e.resolutionDate || null,
-      }))
+      })),
     );
 
     // Step 3: Compute Absolute Market Math Benchmarks
@@ -427,7 +564,10 @@ export async function GET(req: Request) {
     const VOLUME_BENCHMARK = 500;
 
     const marketsWithMath = flattenedMarkets.map((m: any) => {
-      const liquidityMath = Math.min(1, (m.liquidity ?? 0) / LIQUIDITY_BENCHMARK);
+      const liquidityMath = Math.min(
+        1,
+        (m.liquidity ?? 0) / LIQUIDITY_BENCHMARK,
+      );
       const volumeMath = Math.min(1, (m.totalOrders ?? 0) / VOLUME_BENCHMARK);
 
       return {
@@ -441,12 +581,12 @@ export async function GET(req: Request) {
     });
 
     // Step 3.1: Create a verified ID map to enforce Source of Truth (Don't trust AI with UUIDs)
-    const verifiedIdMap = new Map<string, { yes?: string, no?: string }>();
+    const verifiedIdMap = new Map<string, { yes?: string; no?: string }>();
     marketsWithMath.forEach((m: any) => {
       // Ensure we don't accidentally use the market ID as an outcome ID
       const y = m.yesOutcomeId !== m.marketId ? m.yesOutcomeId : undefined;
       const n = m.noOutcomeId !== m.marketId ? m.noOutcomeId : undefined;
-      
+
       if (y || n) {
         verifiedIdMap.set(m.marketId, { yes: y, no: n });
       }
@@ -467,12 +607,16 @@ export async function GET(req: Request) {
       sensitivity: getUSDNGNSensitivity(n),
     }));
 
-    const rankedNews = scoredNews.sort((a, b) => b.sensitivity - a.sensitivity).slice(0, 8);
+    const rankedNews = scoredNews
+      .sort((a, b) => b.sensitivity - a.sensitivity)
+      .slice(0, 8);
 
     const newsContext =
       rankedNews.length > 0
         ? `\nLATEST MACRO NEWS (ranked by USDNGN relevance, sensitivity 0-1):\n` +
-          rankedNews.map((n) => `- [sensitivity:${n.sensitivity}] ${n.headline}`).join("\n") +
+          rankedNews
+            .map((n) => `- [sensitivity:${n.sensitivity}] ${n.headline}`)
+            .join("\n") +
           "\n"
         : "";
 
@@ -557,11 +701,14 @@ Find the alpha. Focus on Nigerian/African macro context. Let the live data speak
         });
         break; // Success, exit retry loop
       } catch (err: any) {
-        const isRateLimit = err?.status === 429 || err?.message?.includes("429") || err?.message?.includes("RESOURCE_EXHAUSTED");
+        const isRateLimit =
+          err?.status === 429 ||
+          err?.message?.includes("429") ||
+          err?.message?.includes("RESOURCE_EXHAUSTED");
         if (isRateLimit && i < aiRetries - 1) {
-          const delay = 1000 * (2 ** i) * 1.5; // 1.5s, 3s
+          const delay = 1000 * 2 ** i * 1.5; // 1.5s, 3s
           console.warn(`[Vertex AI 429 Rate Limit] Retrying in ${delay}ms...`);
-          await new Promise(r => setTimeout(r, delay));
+          await new Promise((r) => setTimeout(r, delay));
           continue;
         }
         throw err;
@@ -572,7 +719,10 @@ Find the alpha. Focus on Nigerian/African macro context. Let the live data speak
     if (!responseText) throw new Error("Vertex AI returned no text");
 
     // Clean response text
-    responseText = responseText.replace(/```json/g, "").replace(/```/g, "").trim();
+    responseText = responseText
+      .replace(/```json/g, "")
+      .replace(/```/g, "")
+      .trim();
 
     let signals: any;
     try {
@@ -595,7 +745,11 @@ Find the alpha. Focus on Nigerian/African macro context. Let the live data speak
       }
     }
 
-    // Step 7: Post-Processing Deduplication & Stability Latching
+    // Step 7a: Trade Score Gate — hard-enforce WAIT on low-conviction signals
+    // This runs BEFORE deduplication so bad signals are caught before caching.
+    signals.signals = applyTradeScoreGate(signals.signals);
+
+    // Step 7b: Post-Processing Deduplication
     const seenEvents = new Set();
     signals.signals = signals.signals.filter((s: any) => {
       if (seenEvents.has(s.eventId)) return false;
@@ -603,17 +757,21 @@ Find the alpha. Focus on Nigerian/African macro context. Let the live data speak
       return true;
     });
 
-    // Apply Stability Latch & Strict ID Enforcement
+    // Step 7c: Stability Latch & Strict ID Enforcement
     signals.signals = signals.signals.map((s: any) => {
       // 1. FORCED ENFORCEMENT: Always get the verified IDs from the current live data
       const verified = verifiedIdMap.get(s.marketId);
 
       const prev = signalHistory[s.marketId];
       if (prev && prev.yesOutcomeId && prev.noOutcomeId) {
-        const delta = Math.abs(Number(s.probability) - Number(prev.probability));
+        const delta = Math.abs(
+          Number(s.probability) - Number(prev.probability),
+        );
         if (delta < STABILITY_THRESHOLD) {
-          console.log(`LATCH_ACTIVE: Stabilizing ${s.marketId} (delta: ${(delta * 100).toFixed(1)}%)`);
-          
+          console.log(
+            `LATCH_ACTIVE: Stabilizing ${s.marketId} (delta: ${(delta * 100).toFixed(1)}%)`,
+          );
+
           // Re-inject verified IDs even into the stabilized signal
           const stabilizedSignal = {
             ...s,
@@ -630,7 +788,9 @@ Find the alpha. Focus on Nigerian/African macro context. Let the live data speak
           return stabilizedSignal;
         }
         // Significant change detected
-        console.log(`LATCH_BROKEN: Significant shift in ${s.marketId} (delta: ${(delta * 100).toFixed(1)}%)`);
+        console.log(
+          `LATCH_BROKEN: Significant shift in ${s.marketId} (delta: ${(delta * 100).toFixed(1)}%)`,
+        );
         s.hasChanged = true;
       }
 
@@ -651,7 +811,7 @@ Find the alpha. Focus on Nigerian/African macro context. Let the live data speak
     memCache[cacheKey] = { data: signals, timestamp };
     writeDiskCache(cacheKey, signals, timestamp);
     console.log(
-      `GEMINI_SUCCESS: Generated ${signals.signals.length} unique alpha signals for ${cacheKey}. Written to disk.`
+      `GEMINI_SUCCESS: Generated ${signals.signals.length} unique alpha signals for ${cacheKey}. Written to disk.`,
     );
 
     return Response.json(signals);
