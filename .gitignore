@@ -43,3 +43,5 @@ service-account.json
 
 # AI signal cache (disk-persisted, auto-generated)
 /.cache
+service-account.json
+src/data/*.json
